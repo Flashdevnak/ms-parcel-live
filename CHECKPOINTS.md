@@ -4,56 +4,55 @@
 - [x] Parsed HAR and identified `unfinished_parcel_list` + lightweight summary endpoint.
 - [x] Parsed XLSX structure: 23 columns, 94,820 data rows.
 - [x] Created Supabase project `ms-parcel-live` in `ap-southeast-1`.
-- [x] Created Auth/profile, MS connection, short-lived detail cache and summary cache schema.
-- [x] Seeded the current HAR credential bundle server-side; encrypted at rest and never returned by API.
-- [x] Frontend MVP complete: login/signup, dashboard, detail table/cards, filters, pagination, HAR refresh.
-- [x] No cron scanning of all ~95k parcels; no full historical mirror.
-- [x] First authenticated login + live MS end-to-end verification.
+- [x] Current HAR credential encrypted at rest and never returned by API.
 - [x] GitHub Pages published: https://flashdevnak.github.io/ms-parcel-live/
+- [x] No cron scanning of all ~95k parcels; no full historical mirror.
 - [x] Hard boundary: never read/write `waiting-trucks-report` for this project.
 
-## Auth / access
-- [x] Owner account claimed Admin successfully; bootstrap is consumed and cannot be reused.
-- [x] New users start as `pending`; Admin approval is required before live/summary data access.
-- [x] Admin user-management UI added.
-- [x] Credential encrypted with AES-GCM; frontend cannot read it.
-- [x] Auth refresh / repeated SIGNED_IN for the same user no longer clears live rows/hash/timers.
+## v6 production baseline
+- [x] Owner/Admin live authentication verified.
+- [x] Live changed TTL = 8 seconds; quiet TTL = 15 seconds; summary = 60 seconds; hidden tab = 60 seconds.
+- [x] Slim payload + `content_hash` + `previous_hash` + `delta_payload` verified.
+- [x] Shared refresh lease verified atomic: first claim=true, immediate second claim=false.
+- [x] Final visible-tab production test: DB TTL 8.002 seconds; repeated `/live` about every 9.3–9.5 seconds including MS/Edge processing.
+- [x] v6 100-row payload measured ~15.9 KB full / ~1.26 KB delta in latest production sample.
 
-## v6 live optimization
-- [x] Edge Function `ms-parcel-api` v6 ACTIVE.
-- [x] Live changed TTL = 8 seconds; quiet TTL = 15 seconds.
-- [x] Summary TTL = 60 seconds.
-- [x] Hidden tab refresh = 60 seconds; visible again triggers live check in ~300 ms.
-- [x] Slim payload stores only fields used by the UI.
-- [x] `content_hash`, `previous_hash`, and `delta_payload` implemented.
-- [x] Production sample verified: old 100-row cache ~168–169 KB; initial v6 full payload ~83.5 KB; later optimized v6 full payload ~15.9 KB; latest delta sample ~1.26 KB.
-- [x] Shared refresh lease implemented so concurrent browsers do not all call Edge/MS for the same cache key.
-- [x] Atomic lease test: first claim=true, immediate second claim=false.
-- [x] Lease hardened to `SECURITY INVOKER` + RLS; only active users can claim, keys are constrained, lease <= 15 seconds.
-- [x] Performance Advisor duplicate-policy warnings removed.
-- [x] GitHub Actions validates `node --check app.js` before Pages deployment.
-- [x] Edge v6 production `/status`, `/summary`, `/live` verified HTTP 200 with no observed v6 4xx/5xx in the verification window.
-- [x] Final visible-tab production test: DB TTL measured 8.002 seconds; repeated `/live` calls observed about every 9.3–9.5 seconds including ~0.9–1.1 seconds MS/Edge processing time; `known_hash` present on every repeat request.
+## v8 username / multi-device / multi-branch
+- [x] Removed public signup UI; login is Username + password created by Admin.
+- [x] Existing Owner migrated to Username `admin` without changing Owner password.
+- [x] Admin UI can create user, set branch, enable/disable user, reset password, and grant `can_upload_har`.
+- [x] User can keep multiple Supabase sessions/devices; shared lease prevents same branch/page devices from multiplying MS refresh leaders.
+- [x] Added `branches` master table.
+- [x] Existing NE1 migrated safely to branch id 1; Store `TH27011602` and encrypted credential preserved.
+- [x] `ms_connection`, live cache, summary cache and lease are branch-scoped and `branch_id` is NOT NULL.
+- [x] Cache key format changed to `b:<branch_id>:...`.
+- [x] Viewer direct-cache RLS restricted to own branch; Admin can access all active branches.
+- [x] `claim_cache_refresh(branch_id, cache_key)` uses `SECURITY INVOKER` + branch-aware RLS.
+- [x] HAR upload is branch-scoped; `can_upload_har` user can update only own branch and Admin can update selected branch.
+- [x] Edge function uses custom Auth verification through `/auth/v1/user` on every protected route; public route is `/login` only.
+- [x] Edge source refactored into `core.ts`, `ms.ts`, `admin.ts`, `index.ts`; Supabase v8 ACTIVE and source matches GitHub.
+- [x] Adaptive live TTL: changed 8s, initial unchanged 15s, unchanged streak >=5 => 30s; summary 60s; hidden tab 60s.
+- [x] Frontend reads metadata first, then delta-only when hash chain matches; full payload is fallback only.
+- [x] Poll refresh is silent: existing table stays visible; no `กำลังโหลดข้อมูล MS...` overlay every cycle.
+- [x] Added `favicon.svg` and linked it from `index.html`.
+- [x] JavaScript CI gate `node --check app.js` passes and Pages deployment for v8 source passed.
+- [x] Added branch indexes including `cache_refresh_leases_branch_idx`; unindexed-FK Advisor INFO removed.
+- [ ] Production browser smoke test on v8: expect branch key `b:1:*`, Edge v8 HTTP 200, and username login path verification.
 
 ## Advisor note
-- [x] Remaining Security Advisor warning reviewed: `Leaked Password Protection Disabled` is a Supabase Pro-or-above feature, so it is not enabled for this Free architecture.
-- [x] Remaining Performance Advisor item is only INFO for an index not yet used while the user table is very small.
+- [x] Security Advisor has no new RLS/schema warning; remaining `Leaked Password Protection Disabled` is the known Free-plan Auth warning.
+- [x] Performance Advisor currently shows only unused-index INFO immediately after v8 cache reset; retain indexes until real multi-branch traffic exists.
 
 ## Historical checkpoints
 - CP15: GitHub Pages enabled and rerun passed.
 - CP16: Pages deployment success.
-- CP17: Security hardening: all new users viewer; one-time admin bootstrap with hash-only storage.
 - CP25: owner/admin claim verified in production.
-- CP27: pending/active/disabled approval schema verified.
-- CP28: Edge Function v5 ACTIVE with approval enforcement.
-- CP30: Pages v5 deployment passed.
-- CP33: production payload size measured before v6 optimization.
 - CP35: Edge Function v6 ACTIVE.
-- CP37: Pages v6 deployment and JavaScript syntax gate passed.
 - CP39: atomic shared lease verified.
-- CP40: GitHub schema synchronized with hardened production schema.
-- CP41: production v6 hash/full/delta cache verified after real browser traffic.
-- CP42: v6 Edge responses verified HTTP 200; hidden-tab cadence explained by intended 60-second throttle.
-- CP43: auth event handling updated to preserve polling state for the same user.
-- CP46: v6 slim cache measured at ~15.9 KB full / ~1.26 KB delta for 100 rows with 8.002-second TTL.
-- CP47: final visible-tab cadence verified in production at ~9.3–9.5 seconds end-to-end with repeated HTTP 200 and `known_hash`.
+- CP46: v6 slim cache measured at ~15.9 KB full / ~1.26 KB delta for 100 rows.
+- CP47: final v6 visible-tab cadence verified at ~9.3–9.5 seconds end-to-end.
+- v8-1: multi-branch/username/permission migration applied.
+- v8-2: NE1 existing credential migration verified safe.
+- v8-3: username/multi-branch frontend + silent refresh + favicon committed.
+- v8-4: Edge custom-auth architecture deployed.
+- v8-5: Edge source modularized and production/GitHub parity restored on v8.
