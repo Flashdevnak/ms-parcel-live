@@ -71,14 +71,51 @@ async function decryptCredential(value: unknown) {
 async function ensureProfile(userId: string) {
   const rows = await db(`app_profiles?user_id=eq.${encodeURIComponent(userId)}&select=user_id,role,display_name&limit=1`);
   if (rows?.[0]) return rows[0];
-  const admins = await db("app_profiles?role=eq.admin&select=user_id&limit=1");
-  const role = admins?.length ? "viewer" : "admin";
   const created = await db("app_profiles", {
     method: "POST",
     headers: { Prefer: "return=representation" },
-    body: JSON.stringify({ user_id: userId, role }),
+    body: JSON.stringify({ user_id: userId, role: "viewer" }),
   });
-  return created?.[0] || { user_id: userId, role };
+  return created?.[0] || { user_id: userId, role: "viewer" };
+}
+
+async function sha256Hex(value: string) {
+  const data = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function adminClaimAvailable() {
+  const admins = await db("app_profiles?role=eq.admin&select=user_id&limit=1");
+  if (admins?.length) return false;
+  const rows = await db("app_settings?key=eq.admin_bootstrap&select=used_at&limit=1");
+  return !!rows?.[0] && !rows[0].used_at;
+}
+
+async function claimAdmin(userId: string, code: string) {
+  if (!code || code.length > 128) throw new Error("รหัสเปิดสิทธิ์ไม่ถูกต้อง");
+  const admins = await db("app_profiles?role=eq.admin&select=user_id&limit=1");
+  if (admins?.length) throw new Error("มีผู้ดูแลระบบแล้ว");
+  const rows = await db("app_settings?key=eq.admin_bootstrap&select=value_hash,used_at&limit=1");
+  const row = rows?.[0];
+  if (!row || row.used_at) throw new Error("รหัสเปิดสิทธิ์นี้ถูกใช้แล้ว");
+  const hash = await sha256Hex(code);
+  if (hash !== String(row.value_hash || "")) throw new Error("รหัสเปิดสิทธิ์ไม่ถูกต้อง");
+
+  const reserved = await db("app_settings?key=eq.admin_bootstrap&used_at=is.null", {
+    method: "PATCH",
+    headers: { Prefer: "return=representation" },
+    body: JSON.stringify({ used_at: new Date().toISOString(), used_by: userId, updated_at: new Date().toISOString() }),
+  });
+  if (!reserved?.length) throw new Error("รหัสเปิดสิทธิ์ถูกใช้งานไปแล้ว");
+
+  const promoted = await db(`app_profiles?user_id=eq.${encodeURIComponent(userId)}`, {
+    method: "PATCH",
+    headers: { Prefer: "return=representation" },
+    body: JSON.stringify({ role: "admin", updated_at: new Date().toISOString() }),
+  });
+  if (!promoted?.length) throw new Error("ไม่สามารถเปิดสิทธิ์ผู้ดูแลได้");
+  return promoted[0];
 }
 
 async function getConnection() {
@@ -215,6 +252,18 @@ Deno.serve(async (req) => {
     const u = new URL(req.url);
     const route = u.pathname.split("/").filter(Boolean).pop() || "";
 
+    if (req.method === "POST" && route === "claim-admin") {
+      if (profile.role === "admin") return json({ ok: true, data: { profile, alreadyAdmin: true } });
+      let body: any = {};
+      try { body = await req.json(); } catch {}
+      try {
+        const claimed = await claimAdmin(userId, String(body?.code || ""));
+        return json({ ok: true, data: { profile: claimed } });
+      } catch (err) {
+        return json({ ok: false, message: err instanceof Error ? err.message : String(err) }, 403);
+      }
+    }
+
     if (req.method === "POST" && route === "har") {
       if (profile.role !== "admin") return json({ ok: false, message: "Admin only" }, 403);
       const text = await req.text();
@@ -305,7 +354,8 @@ Deno.serve(async (req) => {
 
     if (req.method === "GET" && route === "status") {
       const conn = await db("ms_connection?is_active=eq.true&select=label,store_id,store_name,credential_updated_at,last_ok_at,last_error&limit=1");
-      return json({ ok: true, data: { profile, connection: conn?.[0] || null } });
+      const canClaimAdmin = profile.role !== "admin" ? await adminClaimAvailable() : false;
+      return json({ ok: true, data: { profile, connection: conn?.[0] || null, canClaimAdmin } });
     }
 
     return json({ ok: false, message: "Not found" }, 404);
