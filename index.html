@@ -82,7 +82,7 @@
       <h2>เข้าสู่ระบบ</h2>
       <p>ใช้ Username และรหัสผ่านที่ Admin สร้างให้</p>
       <label><span>Username</span><input id="username" type="text" autocomplete="username" minlength="3" maxlength="32" required /></label>
-      <label><span>รหัสผ่าน</span><input id="password" type="password" autocomplete="current-password" minlength="8" required /></label>
+      <label><span>รหัสผ่าน</span><input id="password" type="password" autocomplete="current-password" minlength="6" required /></label>
       <div id="login-error" class="form-error hidden"></div>
       <button class="btn btn-accent" type="submit">เข้าสู่ระบบ</button>
     </form>
@@ -96,7 +96,7 @@
       <form id="create-user-form" class="admin-form-grid">
         <label><span>Username</span><input id="new-username" type="text" minlength="3" maxlength="32" placeholder="เช่น ne1-01" required /></label>
         <label><span>ชื่อแสดง</span><input id="new-display-name" type="text" maxlength="80" placeholder="เช่น ทีมคัดแยก NE1" /></label>
-        <label><span>รหัสผ่านเริ่มต้น</span><input id="new-password" type="password" minlength="8" maxlength="128" required /></label>
+        <label><span>รหัสผ่านเริ่มต้น</span><input id="new-password" type="password" minlength="6" maxlength="128" required /></label>
         <label><span>สาขา</span><select id="new-user-branch" required></select></label>
         <label class="check-label"><input id="new-can-upload-har" type="checkbox" /><span>อนุญาตให้อัปโหลด HAR ของสาขาตัวเอง</span></label>
         <button class="btn btn-accent" type="submit">สร้างผู้ใช้</button>
