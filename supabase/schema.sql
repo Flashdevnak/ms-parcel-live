@@ -1,4 +1,4 @@
--- Reference schema for ms-parcel-live v7 (Supabase project afhnfnfbqdqqzrghovfc)
+-- Reference schema for ms-parcel-live v8 (Supabase project afhnfnfbqdqqzrghovfc)
 
 create table if not exists public.branches (
   id bigint generated always as identity primary key,
@@ -81,6 +81,7 @@ create table if not exists public.cache_refresh_leases (
   lease_until timestamptz not null default to_timestamp(0),
   updated_at timestamptz not null default now()
 );
+create index if not exists cache_refresh_leases_branch_idx on public.cache_refresh_leases(branch_id);
 
 create table if not exists public.app_settings (
   key text primary key,
