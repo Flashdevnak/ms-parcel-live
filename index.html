@@ -20,6 +20,7 @@
       </div>
       <div class="topbar-actions">
         <span id="connection-badge" class="badge badge-neutral">ยังไม่ได้เข้าสู่ระบบ</span>
+        <button id="claim-admin-btn" class="btn btn-header hidden" type="button">เปิดสิทธิ์ Admin</button>
         <button id="upload-har-btn" class="btn btn-header hidden" type="button">อัปโหลด HAR</button>
         <button id="refresh-btn" class="btn btn-header hidden" type="button">รีเฟรช</button>
         <button id="logout-btn" class="btn btn-header hidden" type="button">ออกจากระบบ</button>
@@ -85,6 +86,17 @@
       <div id="login-error" class="form-error hidden"></div>
       <button class="btn btn-accent" type="submit">เข้าสู่ระบบ</button>
       <button id="signup-btn" class="btn btn-header" type="button">สร้างบัญชี</button>
+    </form>
+  </dialog>
+
+  <dialog id="claim-admin-dialog">
+    <form id="claim-admin-form" class="dialog-card">
+      <button id="claim-admin-close" class="dialog-close" type="button">×</button>
+      <h2>เปิดสิทธิ์ผู้ดูแล</h2>
+      <p>ใช้รหัสเปิดสิทธิ์ครั้งแรกที่เจ้าของระบบได้รับ รหัสนี้ใช้ได้เพียงครั้งเดียว</p>
+      <label><span>รหัสเปิดสิทธิ์ Admin</span><input id="claim-admin-code" type="password" autocomplete="one-time-code" required /></label>
+      <div id="claim-admin-status" class="sync-text"></div>
+      <button class="btn btn-accent" type="submit">ยืนยันสิทธิ์ Admin</button>
     </form>
   </dialog>
 
