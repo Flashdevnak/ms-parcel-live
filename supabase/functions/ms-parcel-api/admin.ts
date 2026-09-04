@@ -7,7 +7,7 @@ export async function listUsers(){
 export async function createManagedUser(body:any){
   const username=normalizeUsername(body?.username),password=String(body?.password||''),displayName=String(body?.displayName||'').trim(),branchId=Number(body?.branchId||0),canUploadHar=!!body?.canUploadHar;
   if(!validUsername(username))throw new Error('Username ใช้ a-z, 0-9, จุด, ขีด และ _ จำนวน 3-32 ตัว');
-  if(password.length<8||password.length>128)throw new Error('รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร');
+  if(password.length<6||password.length>128)throw new Error('รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร');
   const existing=await db(`app_profiles?username=ilike.${encodeURIComponent(username)}&select=user_id&limit=1`);
   if(existing?.length)throw new Error('Username นี้ถูกใช้แล้ว');
   const branch=await db(`branches?id=eq.${branchId}&is_active=eq.true&select=id&limit=1`);
@@ -39,7 +39,7 @@ export async function changeUser(actorId:string,body:any){
   }
   if(action==='reset_password'){
     const password=String(body?.password||'');
-    if(password.length<8||password.length>128)throw new Error('รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร');
+    if(password.length<6||password.length>128)throw new Error('รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร');
     await authAdminSetPassword(targetId,password);
     return publicProfile(target);
   }
