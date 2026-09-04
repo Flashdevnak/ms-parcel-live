@@ -110,7 +110,16 @@ function renderSummary(d) {
 async function boot() {
   const { data } = await supabase.auth.getSession();
   await setSession(data.session);
-  supabase.auth.onAuthStateChange(async (_event, session) => setSession(session));
+  supabase.auth.onAuthStateChange(async (event, session) => {
+    const currentUserId=state.session?.user?.id||'';
+    const nextUserId=session?.user?.id||'';
+    const softEvent=['INITIAL_SESSION','SIGNED_IN','TOKEN_REFRESHED','USER_UPDATED'].includes(event);
+    if (softEvent && currentUserId && currentUserId===nextUserId) {
+      state.session=session;
+      return;
+    }
+    await setSession(session);
+  });
 }
 
 async function setSession(session) {
