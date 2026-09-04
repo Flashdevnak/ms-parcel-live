@@ -71,67 +71,121 @@ alter table public.summary_cache enable row level security;
 alter table public.cache_refresh_leases enable row level security;
 alter table public.app_settings enable row level security;
 
-revoke insert,update,delete on public.app_profiles from anon,authenticated;
+revoke insert, update, delete on public.app_profiles from anon, authenticated;
 drop policy if exists profiles_self_select on public.app_profiles;
-create policy profiles_self_select on public.app_profiles for select to authenticated using (user_id=(select auth.uid()));
+create policy profiles_self_select on public.app_profiles
+for select to authenticated using (user_id = (select auth.uid()));
 
-revoke all on public.ms_connection from anon,authenticated;
+revoke all on public.ms_connection from anon, authenticated;
 drop policy if exists deny_clients_ms_connection on public.ms_connection;
-create policy deny_clients_ms_connection on public.ms_connection for all to anon,authenticated using(false) with check(false);
+create policy deny_clients_ms_connection on public.ms_connection
+for all to anon, authenticated using (false) with check (false);
 
-revoke all on public.live_cache_pages from anon,authenticated;
+revoke all on public.live_cache_pages from anon, authenticated;
 grant select on public.live_cache_pages to authenticated;
 drop policy if exists deny_clients_live_cache on public.live_cache_pages;
-create policy deny_clients_live_cache on public.live_cache_pages for all to anon,authenticated using(false) with check(false);
 drop policy if exists active_users_read_live_cache on public.live_cache_pages;
-create policy active_users_read_live_cache on public.live_cache_pages for select to authenticated using (
-  exists(select 1 from public.app_profiles p where p.user_id=(select auth.uid()) and p.access_status='active')
+create policy active_users_read_live_cache on public.live_cache_pages
+for select to authenticated using (
+  exists (
+    select 1 from public.app_profiles p
+    where p.user_id = (select auth.uid()) and p.access_status = 'active'
+  )
 );
 
-revoke all on public.summary_cache from anon,authenticated;
+revoke all on public.summary_cache from anon, authenticated;
 grant select on public.summary_cache to authenticated;
 drop policy if exists deny_clients_summary_cache on public.summary_cache;
-create policy deny_clients_summary_cache on public.summary_cache for all to anon,authenticated using(false) with check(false);
 drop policy if exists active_users_read_summary_cache on public.summary_cache;
-create policy active_users_read_summary_cache on public.summary_cache for select to authenticated using (
-  exists(select 1 from public.app_profiles p where p.user_id=(select auth.uid()) and p.access_status='active')
+create policy active_users_read_summary_cache on public.summary_cache
+for select to authenticated using (
+  exists (
+    select 1 from public.app_profiles p
+    where p.user_id = (select auth.uid()) and p.access_status = 'active'
+  )
 );
 
-revoke all on public.cache_refresh_leases from anon,authenticated;
+revoke all on public.cache_refresh_leases from anon, authenticated;
+grant select, insert, update on public.cache_refresh_leases to authenticated;
 drop policy if exists deny_clients_cache_refresh_leases on public.cache_refresh_leases;
-create policy deny_clients_cache_refresh_leases on public.cache_refresh_leases for all to anon,authenticated using(false) with check(false);
+drop policy if exists active_users_read_cache_refresh_leases on public.cache_refresh_leases;
+create policy active_users_read_cache_refresh_leases on public.cache_refresh_leases
+for select to authenticated using (
+  exists (
+    select 1 from public.app_profiles p
+    where p.user_id = (select auth.uid()) and p.access_status = 'active'
+  )
+);
+drop policy if exists active_users_insert_cache_refresh_leases on public.cache_refresh_leases;
+create policy active_users_insert_cache_refresh_leases on public.cache_refresh_leases
+for insert to authenticated with check (
+  owner_user_id = (select auth.uid())
+  and cache_key ~ '^(p:[1-9][0-9]{0,5}:s:(20|50|100)|summary:transfer-summary)$'
+  and lease_until > now()
+  and lease_until <= now() + interval '15 seconds'
+  and exists (
+    select 1 from public.app_profiles p
+    where p.user_id = (select auth.uid()) and p.access_status = 'active'
+  )
+);
+drop policy if exists active_users_update_expired_cache_refresh_leases on public.cache_refresh_leases;
+create policy active_users_update_expired_cache_refresh_leases on public.cache_refresh_leases
+for update to authenticated
+using (
+  lease_until <= now()
+  and exists (
+    select 1 from public.app_profiles p
+    where p.user_id = (select auth.uid()) and p.access_status = 'active'
+  )
+)
+with check (
+  owner_user_id = (select auth.uid())
+  and cache_key ~ '^(p:[1-9][0-9]{0,5}:s:(20|50|100)|summary:transfer-summary)$'
+  and lease_until > now()
+  and lease_until <= now() + interval '15 seconds'
+  and exists (
+    select 1 from public.app_profiles p
+    where p.user_id = (select auth.uid()) and p.access_status = 'active'
+  )
+);
 
-revoke all on public.app_settings from anon,authenticated;
+revoke all on public.app_settings from anon, authenticated;
 drop policy if exists app_settings_deny_all on public.app_settings;
-create policy app_settings_deny_all on public.app_settings for all to anon,authenticated using(false) with check(false);
+create policy app_settings_deny_all on public.app_settings
+for all to anon, authenticated using (false) with check (false);
 
 create index if not exists app_profiles_access_status_idx on public.app_profiles(access_status);
 create index if not exists live_cache_pages_expires_at_idx on public.live_cache_pages(expires_at);
 
-create or replace function public.claim_cache_refresh(p_cache_key text,p_lease_seconds integer default 6)
+create or replace function public.claim_cache_refresh(p_cache_key text, p_lease_seconds integer default 6)
 returns boolean
 language plpgsql
-security definer
-set search_path=public
+security invoker
+set search_path = public
 as $$
 declare
-  v_uid uuid:=auth.uid();
-  v_allowed boolean:=false;
-  v_claimed boolean:=false;
-  v_seconds integer:=greatest(2,least(coalesce(p_lease_seconds,6),15));
+  v_uid uuid := auth.uid();
+  v_claimed boolean := false;
+  v_seconds integer := greatest(2, least(coalesce(p_lease_seconds, 6), 15));
 begin
   if v_uid is null then return false; end if;
   if p_cache_key !~ '^(p:[1-9][0-9]{0,5}:s:(20|50|100)|summary:transfer-summary)$' then return false; end if;
-  select exists(select 1 from public.app_profiles where user_id=v_uid and access_status='active') into v_allowed;
-  if not v_allowed then return false; end if;
-  insert into public.cache_refresh_leases(cache_key,owner_user_id,lease_until,updated_at)
-  values(p_cache_key,v_uid,now()+make_interval(secs=>v_seconds),now())
+  if not exists (
+    select 1 from public.app_profiles
+    where user_id = v_uid and access_status = 'active'
+  ) then return false; end if;
+
+  insert into public.cache_refresh_leases(cache_key, owner_user_id, lease_until, updated_at)
+  values(p_cache_key, v_uid, now() + make_interval(secs => v_seconds), now())
   on conflict(cache_key) do update
-    set owner_user_id=excluded.owner_user_id,lease_until=excluded.lease_until,updated_at=excluded.updated_at
-    where public.cache_refresh_leases.lease_until<=now()
+    set owner_user_id = excluded.owner_user_id,
+        lease_until = excluded.lease_until,
+        updated_at = excluded.updated_at
+    where public.cache_refresh_leases.lease_until <= now()
   returning true into v_claimed;
-  return coalesce(v_claimed,false);
+
+  return coalesce(v_claimed, false);
 end;
 $$;
-revoke all on function public.claim_cache_refresh(text,integer) from public,anon;
-grant execute on function public.claim_cache_refresh(text,integer) to authenticated;
+revoke all on function public.claim_cache_refresh(text, integer) from public, anon;
+grant execute on function public.claim_cache_refresh(text, integer) to authenticated;
