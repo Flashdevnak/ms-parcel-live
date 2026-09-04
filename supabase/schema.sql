@@ -30,8 +30,11 @@ alter table public.ms_connection enable row level security;
 alter table public.live_cache_pages enable row level security;
 alter table public.summary_cache enable row level security;
 
+-- Clients can read only their own profile. All mutations are service-role only.
 create policy "profiles_self_select" on public.app_profiles for select to authenticated using (user_id = (select auth.uid()));
-create policy "profiles_self_update" on public.app_profiles for update to authenticated using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
+revoke insert, update, delete on public.app_profiles from anon, authenticated;
+grant select on public.app_profiles to authenticated;
+
 create policy "deny_clients_ms_connection" on public.ms_connection for all to anon, authenticated using (false) with check (false);
 create policy "deny_clients_live_cache" on public.live_cache_pages for all to anon, authenticated using (false) with check (false);
 create policy "deny_clients_summary_cache" on public.summary_cache for all to anon, authenticated using (false) with check (false);
