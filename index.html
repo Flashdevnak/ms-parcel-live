@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#151515" />
+  <title>MS Parcel Live</title>
+  <link rel="stylesheet" href="style.css" />
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <div class="header-brand">
+        <div class="brand-mark">F</div>
+        <div class="brand-copy">
+          <strong>MS Parcel Live</strong>
+          <span id="live-clock">--:--:--</span>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <span id="connection-badge" class="badge badge-neutral">ยังไม่ได้เข้าสู่ระบบ</span>
+        <button id="upload-har-btn" class="btn btn-header hidden" type="button">อัปโหลด HAR</button>
+        <button id="refresh-btn" class="btn btn-header hidden" type="button">รีเฟรช</button>
+        <button id="logout-btn" class="btn btn-header hidden" type="button">ออกจากระบบ</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="app-shell">
+    <section class="heading-row">
+      <div>
+        <h1>ติดตามพัสดุคงคลัง MS</h1>
+        <p>ข้อมูลปัจจุบันจาก MS · โหลดเฉพาะหน้าที่กำลังดู · ไม่สะสมข้อมูลเก่า</p>
+      </div>
+      <div class="live-note"><span id="live-dot" class="live-dot stale"></span><span id="source-sync">ยังไม่ได้เชื่อมต่อ</span></div>
+    </section>
+
+    <section id="metrics" class="metric-grid">
+      <article class="metric-card metric-dark"><span>พัสดุคงคลังทั้งหมด</span><strong id="m-total">0</strong><small id="m-store">-</small></article>
+      <article class="metric-card"><span>1 วัน</span><strong id="m-day1">0</strong><small>ตาม MS</small></article>
+      <article class="metric-card"><span>2 วัน</span><strong id="m-day2">0</strong><small>ตาม MS</small></article>
+      <article class="metric-card"><span>3 วัน</span><strong id="m-day3">0</strong><small>ตาม MS</small></article>
+      <article class="metric-card metric-warning"><span>4 วัน</span><strong id="m-day4">0</strong><small>ติดตามใกล้ชิด</small></article>
+      <article class="metric-card metric-danger"><span>5 วันขึ้นไป</span><strong id="m-day5">0</strong><small>ควรเร่งดำเนินการ</small></article>
+    </section>
+
+    <section class="panel toolbar-panel">
+      <div class="toolbar-grid">
+        <label><span>ค้นหาในหน้าปัจจุบัน</span><input id="search-input" type="search" placeholder="เลขพัสดุ / แบ็กกิ้ง / HUB / สาขา / ลูกค้า" /></label>
+        <label><span>สถานะ</span><select id="status-filter"><option value="">ทั้งหมด</option></select></label>
+        <label><span>HUB ปลายทาง</span><select id="hub-filter"><option value="">ทั้งหมด</option></select></label>
+        <label><span>สาขาปลายทาง</span><select id="branch-filter"><option value="">ทั้งหมด</option></select></label>
+        <label><span>แถวต่อหน้า</span><select id="page-size"><option>20</option><option>50</option><option selected>100</option></select></label>
+      </div>
+      <div class="toolbar-footer">
+        <span id="page-info">หน้า 1</span>
+        <div class="pager-actions"><button id="prev-btn" class="btn btn-header" type="button">ก่อนหน้า</button><button id="next-btn" class="btn btn-header" type="button">ถัดไป</button></div>
+      </div>
+      <p id="last-refresh" class="sync-text">ยังไม่ได้โหลดข้อมูล</p>
+    </section>
+
+    <section class="panel table-panel">
+      <div id="loading-state" class="empty-state">กรุณาเข้าสู่ระบบ</div>
+      <div id="table-wrap" class="table-scroll hidden">
+        <table class="parcel-table">
+          <thead><tr>
+            <th>เลขพัสดุ</th><th>สถานะ</th><th>COD / น้ำหนัก</th><th>เวลาแผน / ถึงจริง</th><th>แบ็กกิ้ง</th><th>สาเหตุคงคลัง</th><th>ดำเนินการล่าสุด</th><th>ผู้ดำเนินการ</th><th>HUB / สาขาปลายทาง</th><th>ที่อยู่ผู้รับ</th><th>ประเภทลูกค้า / ลูกค้า</th>
+          </tr></thead>
+          <tbody id="table-body"></tbody>
+        </table>
+      </div>
+      <div id="mobile-cards" class="mobile-cards hidden"></div>
+    </section>
+
+    <p class="privacy-note">ข้อมูลพนักงานและข้อมูลจาก MS แสดงเฉพาะผู้ที่เข้าสู่ระบบ ระบบนี้เป็นแบบอ่านอย่างเดียว</p>
+  </main>
+
+  <dialog id="login-dialog">
+    <form id="login-form" class="dialog-card">
+      <h2>เข้าสู่ระบบ</h2>
+      <p>ใช้บัญชีของระบบ MS Parcel Live</p>
+      <label><span>อีเมล</span><input id="email" type="email" autocomplete="email" required /></label>
+      <label><span>รหัสผ่าน</span><input id="password" type="password" autocomplete="current-password" minlength="6" required /></label>
+      <div id="login-error" class="form-error hidden"></div>
+      <button class="btn btn-accent" type="submit">เข้าสู่ระบบ</button>
+      <button id="signup-btn" class="btn btn-header" type="button">สร้างบัญชี</button>
+    </form>
+  </dialog>
+
+  <dialog id="har-dialog">
+    <form id="har-form" class="dialog-card">
+      <button id="har-close" class="dialog-close" type="button">×</button>
+      <h2>อัปเดต Session จาก HAR</h2>
+      <p>ไฟล์จะส่งตรงไป Supabase Edge Function เพื่ออ่าน session และไม่ถูกเก็บเป็นไฟล์</p>
+      <input id="har-file" type="file" accept=".har,application/json" required />
+      <div id="har-status" class="sync-text"></div>
+      <button class="btn btn-accent" type="submit">อัปโหลดและทดสอบ</button>
+    </form>
+  </dialog>
+</body>
+</html>
