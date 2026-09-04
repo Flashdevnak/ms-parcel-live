@@ -13,14 +13,14 @@ function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { ...cors, "Content-Type": "application/json; charset=utf-8" } });
 }
 
-function jwtSub(req: Request) {
+function jwtClaims(req: Request) {
   const raw = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
-  if (!raw) return "";
+  if (!raw) return { sub: "", email: "" };
   try {
     const part = raw.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
     const payload = JSON.parse(atob(part.padEnd(Math.ceil(part.length / 4) * 4, "=")));
-    return String(payload.sub || "");
-  } catch { return ""; }
+    return { sub: String(payload.sub || ""), email: String(payload.email || "") };
+  } catch { return { sub: "", email: "" }; }
 }
 
 async function db(path: string, init: RequestInit = {}) {
@@ -68,15 +68,24 @@ async function decryptCredential(value: unknown) {
   return { credential: JSON.parse(new TextDecoder().decode(decrypted)) as Record<string,string>, legacy: false };
 }
 
-async function ensureProfile(userId: string) {
-  const rows = await db(`app_profiles?user_id=eq.${encodeURIComponent(userId)}&select=user_id,role,display_name&limit=1`);
-  if (rows?.[0]) return rows[0];
+async function ensureProfile(userId: string, email: string) {
+  const rows = await db(`app_profiles?user_id=eq.${encodeURIComponent(userId)}&select=user_id,email,role,display_name,access_status,created_at,updated_at&limit=1`);
+  if (rows?.[0]) {
+    if (email && !rows[0].email) {
+      const updated = await db(`app_profiles?user_id=eq.${encodeURIComponent(userId)}`, {
+        method: "PATCH", headers: { Prefer: "return=representation" },
+        body: JSON.stringify({ email, updated_at: new Date().toISOString() }),
+      });
+      if (updated?.[0]) return updated[0];
+    }
+    return rows[0];
+  }
   const created = await db("app_profiles", {
     method: "POST",
     headers: { Prefer: "return=representation" },
-    body: JSON.stringify({ user_id: userId, role: "viewer" }),
+    body: JSON.stringify({ user_id: userId, email: email || null, role: "viewer", access_status: "pending" }),
   });
-  return created?.[0] || { user_id: userId, role: "viewer" };
+  return created?.[0] || { user_id: userId, email, role: "viewer", access_status: "pending" };
 }
 
 async function sha256Hex(value: string) {
@@ -112,7 +121,7 @@ async function claimAdmin(userId: string, code: string) {
   const promoted = await db(`app_profiles?user_id=eq.${encodeURIComponent(userId)}`, {
     method: "PATCH",
     headers: { Prefer: "return=representation" },
-    body: JSON.stringify({ role: "admin", updated_at: new Date().toISOString() }),
+    body: JSON.stringify({ role: "admin", access_status: "active", updated_at: new Date().toISOString() }),
   });
   if (!promoted?.length) throw new Error("ไม่สามารถเปิดสิทธิ์ผู้ดูแลได้");
   return promoted[0];
@@ -242,13 +251,33 @@ async function fetchSummary(conn: any) {
 
 function canonicalRows(rows: any[]) { return JSON.stringify(rows || []); }
 
+async function listUsers() {
+  return await db("app_profiles?select=user_id,email,display_name,role,access_status,created_at,updated_at&order=created_at.asc");
+}
+
+async function changeUserAccess(actorId: string, targetId: string, action: string) {
+  if (!targetId) throw new Error("ไม่พบผู้ใช้");
+  if (targetId === actorId && action === "disable") throw new Error("ไม่สามารถปิดสิทธิ์บัญชี Admin ที่กำลังใช้งานได้");
+  const target = await db(`app_profiles?user_id=eq.${encodeURIComponent(targetId)}&select=user_id,role,access_status&limit=1`);
+  if (!target?.[0]) throw new Error("ไม่พบผู้ใช้");
+  if (target[0].role === "admin" && action === "disable") throw new Error("ไม่สามารถปิดสิทธิ์ Admin ผ่านหน้าจอนี้ได้");
+  const access_status = action === "approve" ? "active" : action === "disable" ? "disabled" : action === "pending" ? "pending" : "";
+  if (!access_status) throw new Error("คำสั่งจัดการผู้ใช้ไม่ถูกต้อง");
+  const updated = await db(`app_profiles?user_id=eq.${encodeURIComponent(targetId)}`, {
+    method: "PATCH", headers: { Prefer: "return=representation" },
+    body: JSON.stringify({ access_status, updated_at: new Date().toISOString() }),
+  });
+  return updated?.[0] || null;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
-  const userId = jwtSub(req);
+  const claims = jwtClaims(req);
+  const userId = claims.sub;
   if (!userId) return json({ ok: false, message: "Unauthorized" }, 401);
 
   try {
-    const profile = await ensureProfile(userId);
+    let profile = await ensureProfile(userId, claims.email);
     const u = new URL(req.url);
     const route = u.pathname.split("/").filter(Boolean).pop() || "";
 
@@ -262,6 +291,27 @@ Deno.serve(async (req) => {
       } catch (err) {
         return json({ ok: false, message: err instanceof Error ? err.message : String(err) }, 403);
       }
+    }
+
+    if (route === "users") {
+      if (profile.role !== "admin" || profile.access_status !== "active") return json({ ok: false, message: "Admin only" }, 403);
+      if (req.method === "GET") return json({ ok: true, data: { users: await listUsers() } });
+      if (req.method === "POST") {
+        let body: any = {};
+        try { body = await req.json(); } catch {}
+        const updated = await changeUserAccess(userId, String(body?.userId || ""), String(body?.action || ""));
+        return json({ ok: true, data: { user: updated } });
+      }
+    }
+
+    if (req.method === "GET" && route === "status") {
+      const conn = await db("ms_connection?is_active=eq.true&select=label,store_id,store_name,credential_updated_at,last_ok_at,last_error&limit=1");
+      const canClaimAdmin = profile.role !== "admin" ? await adminClaimAvailable() : false;
+      return json({ ok: true, data: { profile, connection: conn?.[0] || null, canClaimAdmin } });
+    }
+
+    if (profile.access_status !== "active") {
+      return json({ ok: false, message: profile.access_status === "disabled" ? "บัญชีนี้ถูกระงับการใช้งาน" : "บัญชีนี้กำลังรอ Admin อนุมัติ" }, 403);
     }
 
     if (req.method === "POST" && route === "har") {
@@ -350,12 +400,6 @@ Deno.serve(async (req) => {
         if (c?.payload) return json({ ok: true, data: c.payload, meta: { cache: "stale", stale: true, error: message, profileRole: profile.role } });
         return json({ ok: false, message }, 502);
       }
-    }
-
-    if (req.method === "GET" && route === "status") {
-      const conn = await db("ms_connection?is_active=eq.true&select=label,store_id,store_name,credential_updated_at,last_ok_at,last_error&limit=1");
-      const canClaimAdmin = profile.role !== "admin" ? await adminClaimAvailable() : false;
-      return json({ ok: true, data: { profile, connection: conn?.[0] || null, canClaimAdmin } });
     }
 
     return json({ ok: false, message: "Not found" }, 404);
