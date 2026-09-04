@@ -46,7 +46,7 @@ async function setSession(session) {
   clearTimeout(state.timer); clearTimeout(state.summaryTimer);
   if (!session) {
     $('login-dialog').showModal();
-    $('logout-btn').classList.add('hidden'); $('refresh-btn').classList.add('hidden'); $('upload-har-btn').classList.add('hidden');
+    $('logout-btn').classList.add('hidden'); $('refresh-btn').classList.add('hidden'); $('upload-har-btn').classList.add('hidden'); $('claim-admin-btn').classList.add('hidden');
     $('loading-state').textContent = 'กรุณาเข้าสู่ระบบ'; $('table-wrap').classList.add('hidden'); $('mobile-cards').classList.add('hidden');
     setConnection('neutral','ยังไม่ได้เข้าสู่ระบบ'); $('source-sync').textContent='ยังไม่ได้เชื่อมต่อ';
     return;
@@ -56,7 +56,8 @@ async function setSession(session) {
   try {
     const status = await api('status');
     state.profileRole = status.data.profile?.role || 'viewer';
-    if (state.profileRole === 'admin') $('upload-har-btn').classList.remove('hidden');
+    $('upload-har-btn').classList.toggle('hidden', state.profileRole !== 'admin');
+    $('claim-admin-btn').classList.toggle('hidden', state.profileRole === 'admin' || !status.data.canClaimAdmin);
     const c = status.data.connection;
     if (c?.last_error) setConnection('bad','MS มีปัญหา'); else setConnection('ok','ออนไลน์');
     $('source-sync').textContent = c?.store_name || c?.store_id || 'เชื่อมต่อแล้ว';
@@ -109,6 +110,22 @@ function renderRows(){const rows=filteredRows(); $('loading-state').classList.to
 
 $('login-form').addEventListener('submit',async e=>{e.preventDefault();$('login-error').classList.add('hidden');const {error}=await supabase.auth.signInWithPassword({email:$('email').value.trim(),password:$('password').value});if(error){$('login-error').textContent=error.message;$('login-error').classList.remove('hidden');}});
 $('signup-btn').addEventListener('click',async()=>{const email=$('email').value.trim(),password=$('password').value;if(!email||password.length<6){$('login-error').textContent='กรอกอีเมลและรหัสผ่านอย่างน้อย 6 ตัวอักษร';$('login-error').classList.remove('hidden');return;}const {error}=await supabase.auth.signUp({email,password});$('login-error').textContent=error?error.message:'สร้างบัญชีแล้ว หากระบบขอยืนยันอีเมล กรุณายืนยันก่อนเข้าสู่ระบบ';$('login-error').classList.remove('hidden');});
+
+$('claim-admin-btn').addEventListener('click',()=>{$('claim-admin-status').textContent='';$('claim-admin-code').value='';$('claim-admin-dialog').showModal();});
+$('claim-admin-close').addEventListener('click',()=>$('claim-admin-dialog').close());
+$('claim-admin-form').addEventListener('submit',async e=>{
+  e.preventDefault();
+  $('claim-admin-status').textContent='กำลังตรวจรหัส…';
+  try {
+    const out=await api('claim-admin',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:$('claim-admin-code').value})});
+    state.profileRole=out.data?.profile?.role||'admin';
+    $('claim-admin-status').textContent='เปิดสิทธิ์ Admin สำเร็จ';
+    $('claim-admin-btn').classList.add('hidden');
+    $('upload-har-btn').classList.remove('hidden');
+    setTimeout(()=>{if($('claim-admin-dialog').open)$('claim-admin-dialog').close();},500);
+  } catch(err) { $('claim-admin-status').textContent=`ไม่สำเร็จ: ${err.message}`; }
+});
+
 $('logout-btn').addEventListener('click',()=>supabase.auth.signOut()); $('refresh-btn').addEventListener('click',()=>Promise.allSettled([loadSummary(true),loadPage(true)]));
 $('upload-har-btn').addEventListener('click',()=>$('har-dialog').showModal()); $('har-close').addEventListener('click',()=>$('har-dialog').close());
 $('har-form').addEventListener('submit',async e=>{e.preventDefault();const file=$('har-file').files?.[0];if(!file)return;$('har-status').textContent='กำลังอัปโหลดและตรวจ session…';try{const text=await file.text();const out=await api('har',{method:'POST',headers:{'Content-Type':'application/json'},body:text});$('har-status').textContent=`สำเร็จ · Store ${out.data.storeId}`;await Promise.allSettled([loadSummary(true),loadPage(true)]);}catch(err){$('har-status').textContent=`ไม่สำเร็จ: ${err.message}`;}});
