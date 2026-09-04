@@ -30,9 +30,22 @@ alter table public.ms_connection enable row level security;
 alter table public.live_cache_pages enable row level security;
 alter table public.summary_cache enable row level security;
 
--- Policies applied in production
 create policy "profiles_self_select" on public.app_profiles for select to authenticated using (user_id = (select auth.uid()));
 create policy "profiles_self_update" on public.app_profiles for update to authenticated using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
 create policy "deny_clients_ms_connection" on public.ms_connection for all to anon, authenticated using (false) with check (false);
 create policy "deny_clients_live_cache" on public.live_cache_pages for all to anon, authenticated using (false) with check (false);
 create policy "deny_clients_summary_cache" on public.summary_cache for all to anon, authenticated using (false) with check (false);
+
+-- One-time admin bootstrap guard. Store only SHA-256 hash, never the plaintext code.
+create table if not exists public.app_settings (
+  key text primary key,
+  value_hash text not null,
+  used_at timestamptz,
+  used_by uuid,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+alter table public.app_settings enable row level security;
+revoke all on public.app_settings from anon, authenticated;
+drop policy if exists app_settings_deny_all on public.app_settings;
+create policy app_settings_deny_all on public.app_settings for all to anon, authenticated using (false) with check (false);
