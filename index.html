@@ -21,6 +21,7 @@
       <div class="topbar-actions">
         <span id="connection-badge" class="badge badge-neutral">ยังไม่ได้เข้าสู่ระบบ</span>
         <button id="claim-admin-btn" class="btn btn-header hidden" type="button">เปิดสิทธิ์ Admin</button>
+        <button id="manage-users-btn" class="btn btn-header hidden" type="button">จัดการผู้ใช้</button>
         <button id="upload-har-btn" class="btn btn-header hidden" type="button">อัปโหลด HAR</button>
         <button id="refresh-btn" class="btn btn-header hidden" type="button">รีเฟรช</button>
         <button id="logout-btn" class="btn btn-header hidden" type="button">ออกจากระบบ</button>
@@ -98,6 +99,17 @@
       <div id="claim-admin-status" class="sync-text"></div>
       <button class="btn btn-accent" type="submit">ยืนยันสิทธิ์ Admin</button>
     </form>
+  </dialog>
+
+  <dialog id="users-dialog">
+    <div class="dialog-card users-dialog-card">
+      <button id="users-close" class="dialog-close" type="button">×</button>
+      <h2>จัดการผู้ใช้</h2>
+      <p>ผู้สมัครใหม่จะรออนุมัติและยังเปิดดูข้อมูล MS ไม่ได้</p>
+      <div id="users-status" class="sync-text"></div>
+      <div id="users-list" class="users-list"></div>
+      <button id="users-refresh" class="btn btn-header" type="button">รีเฟรชรายชื่อ</button>
+    </div>
   </dialog>
 
   <dialog id="har-dialog">
