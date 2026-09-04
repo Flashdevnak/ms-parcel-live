@@ -1,379 +1,104 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { asBranchId, authenticate, authPasswordLogin, cors, db, encryptCredential, ensureProfile, errMessage, hashPage, hashSummary, json, normalizeUsername, publicProfile, validUsername } from './core.ts';
+import { createBranch, changeUser, createManagedUser, listUsers } from './admin.ts';
+import { diffRows, fetchLivePage, fetchSummary, getConnection, listBranches, liveResponseFromCache, oldHashForCache, pickHarRequest, resolveBranch, updateConnectionHealth } from './ms.ts';
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const cors = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-  "Cache-Control": "no-store",
-};
-
-function json(data: unknown, status = 200) {
-  return new Response(JSON.stringify(data), { status, headers: { ...cors, "Content-Type": "application/json; charset=utf-8" } });
-}
-
-function jwtClaims(req: Request) {
-  const raw = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
-  if (!raw) return { sub: "", email: "" };
-  try {
-    const part = raw.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
-    const payload = JSON.parse(atob(part.padEnd(Math.ceil(part.length / 4) * 4, "=")));
-    return { sub: String(payload.sub || ""), email: String(payload.email || "") };
-  } catch { return { sub: "", email: "" }; }
-}
-
-async function db(path: string, init: RequestInit = {}) {
-  const headers = new Headers(init.headers || {});
-  headers.set("apikey", SERVICE_KEY);
-  headers.set("authorization", `Bearer ${SERVICE_KEY}`);
-  if (init.body && !headers.has("content-type")) headers.set("content-type", "application/json");
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { ...init, headers });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`DB ${res.status}: ${text.slice(0, 500)}`);
-  return text ? JSON.parse(text) : null;
-}
-
-function bytesToB64(bytes: Uint8Array) {
-  let binary = "";
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary);
-}
-function b64ToBytes(value: string) {
-  const binary = atob(value);
-  return Uint8Array.from(binary, c => c.charCodeAt(0));
-}
-async function credentialKey() {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`ms-parcel-live:v1:${SERVICE_KEY}`));
-  return crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
-}
-async function encryptCredential(value: Record<string,string>) {
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const key = await credentialKey();
-  const plain = new TextEncoder().encode(JSON.stringify(value));
-  const encrypted = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plain));
-  return `v1.${bytesToB64(iv)}.${bytesToB64(encrypted)}`;
-}
-async function decryptCredential(value: unknown) {
-  const raw = String(value || "");
-  if (!raw) return { credential: {} as Record<string,string>, legacy: false };
-  if (!raw.startsWith("v1.")) {
-    try { return { credential: JSON.parse(raw) as Record<string,string>, legacy: true }; }
-    catch { return { credential: {} as Record<string,string>, legacy: false }; }
-  }
-  const [, iv64, data64] = raw.split(".");
-  if (!iv64 || !data64) throw new Error("รูปแบบ credential ไม่ถูกต้อง");
-  const key = await credentialKey();
-  const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv: b64ToBytes(iv64) }, key, b64ToBytes(data64));
-  return { credential: JSON.parse(new TextDecoder().decode(decrypted)) as Record<string,string>, legacy: false };
-}
-
-async function ensureProfile(userId: string, email: string) {
-  const rows = await db(`app_profiles?user_id=eq.${encodeURIComponent(userId)}&select=user_id,email,role,display_name,access_status,created_at,updated_at&limit=1`);
-  if (rows?.[0]) {
-    if (email && !rows[0].email) {
-      const updated = await db(`app_profiles?user_id=eq.${encodeURIComponent(userId)}`, {
-        method: "PATCH", headers: { Prefer: "return=representation" },
-        body: JSON.stringify({ email, updated_at: new Date().toISOString() }),
-      });
-      if (updated?.[0]) return updated[0];
-    }
-    return rows[0];
-  }
-  const created = await db("app_profiles", {
-    method: "POST", headers: { Prefer: "return=representation" },
-    body: JSON.stringify({ user_id: userId, email: email || null, role: "viewer", access_status: "pending" }),
-  });
-  return created?.[0] || { user_id: userId, email, role: "viewer", access_status: "pending" };
-}
-
-async function sha256Hex(value: string) {
-  const data = new TextEncoder().encode(value);
-  const digest = await crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-async function hashPage(rows: any[], total: number) {
-  return await sha256Hex(JSON.stringify({ rows, total }));
-}
-async function hashSummary(value: any) {
-  return await sha256Hex(JSON.stringify(value));
-}
-
-function slimRow(r: any) {
-  return {
-    pno: r?.pno ?? null,
-    state_name: r?.state_name ?? null,
-    cod_amount: r?.cod_amount ?? null,
-    store_weight: r?.store_weight ?? null,
-    plan_leave_time: r?.plan_leave_time ?? null,
-    real_arrive_time: r?.real_arrive_time ?? null,
-    pack_num: r?.pack_num ?? null,
-    marker_category_name: r?.marker_category_name ?? null,
-    LastAction_name: r?.LastAction_name ?? null,
-    LastActionTime: r?.LastActionTime ?? null,
-    staff_info_name: r?.staff_info_name ?? null,
-    staff_info_phone: r?.staff_info_phone ?? null,
-    dst_hub_name: r?.dst_hub_name ?? null,
-    dst_store_name: r?.dst_store_name ?? null,
-    dst_province_name: r?.dst_province_name ?? null,
-    dst_city_name: r?.dst_city_name ?? null,
-    dst_postal_code: r?.dst_postal_code ?? null,
-    ka_id: r?.ka_id ?? null,
-    ka_name: r?.ka_name ?? null,
-    customer_type_category: r?.customer_type_category ?? null,
-  };
-}
-
-function diffRows(oldRows: any[], newRows: any[]) {
-  const oldMap = new Map<string,string>();
-  const oldKeys = new Set<string>();
-  for (const row of oldRows) {
-    const k = String(row?.pno || "");
-    if (!k) continue;
-    oldKeys.add(k); oldMap.set(k, JSON.stringify(row));
-  }
-  const nextKeys = new Set<string>();
-  const upserts: any[] = [];
-  const order: string[] = [];
-  for (const row of newRows) {
-    const k = String(row?.pno || "");
-    if (!k) continue;
-    nextKeys.add(k); order.push(k);
-    if (oldMap.get(k) !== JSON.stringify(row)) upserts.push(row);
-  }
-  const removed = [...oldKeys].filter(k => !nextKeys.has(k));
-  return { upserts, removed, order };
-}
-
-async function adminClaimAvailable() {
-  const admins = await db("app_profiles?role=eq.admin&select=user_id&limit=1");
-  if (admins?.length) return false;
-  const rows = await db("app_settings?key=eq.admin_bootstrap&select=used_at&limit=1");
-  return !!rows?.[0] && !rows[0].used_at;
-}
-
-async function claimAdmin(userId: string, code: string) {
-  if (!code || code.length > 128) throw new Error("รหัสเปิดสิทธิ์ไม่ถูกต้อง");
-  const admins = await db("app_profiles?role=eq.admin&select=user_id&limit=1");
-  if (admins?.length) throw new Error("มีผู้ดูแลระบบแล้ว");
-  const rows = await db("app_settings?key=eq.admin_bootstrap&select=value_hash,used_at&limit=1");
-  const row = rows?.[0];
-  if (!row || row.used_at) throw new Error("รหัสเปิดสิทธิ์นี้ถูกใช้แล้ว");
-  if (await sha256Hex(code) !== String(row.value_hash || "")) throw new Error("รหัสเปิดสิทธิ์ไม่ถูกต้อง");
-  const reserved = await db("app_settings?key=eq.admin_bootstrap&used_at=is.null", {
-    method: "PATCH", headers: { Prefer: "return=representation" },
-    body: JSON.stringify({ used_at: new Date().toISOString(), used_by: userId, updated_at: new Date().toISOString() }),
-  });
-  if (!reserved?.length) throw new Error("รหัสเปิดสิทธิ์ถูกใช้งานไปแล้ว");
-  const promoted = await db(`app_profiles?user_id=eq.${encodeURIComponent(userId)}`, {
-    method: "PATCH", headers: { Prefer: "return=representation" },
-    body: JSON.stringify({ role: "admin", access_status: "active", updated_at: new Date().toISOString() }),
-  });
-  if (!promoted?.length) throw new Error("ไม่สามารถเปิดสิทธิ์ผู้ดูแลได้");
-  return promoted[0];
-}
-
-async function getConnection() {
-  const rows = await db("ms_connection?is_active=eq.true&select=*&order=id.asc&limit=1");
-  if (!rows?.[0]) throw new Error("ยังไม่ได้ตั้งค่าการเชื่อมต่อ MS");
-  const row = rows[0];
-  const decoded = await decryptCredential(row.credential_ciphertext);
-  if (decoded.legacy && Object.keys(decoded.credential).length) {
-    const encrypted = await encryptCredential(decoded.credential);
-    await db(`ms_connection?id=eq.${row.id}`, {
-      method: "PATCH", headers: { Prefer: "return=minimal" },
-      body: JSON.stringify({ credential_ciphertext: encrypted, updated_at: new Date().toISOString() }),
-    });
-  }
-  return { ...row, credential: decoded.credential };
-}
-
-async function updateConnectionHealth(conn: any, ok: boolean, message = "") {
-  const patch: Record<string, unknown> = {};
-  if (ok) {
-    const last = Date.parse(String(conn?.last_ok_at || ""));
-    const due = !Number.isFinite(last) || Date.now() - last >= 15 * 60_000 || !!conn?.last_error;
-    if (!due) return;
-    patch.last_ok_at = new Date().toISOString(); patch.last_error = null;
-  } else {
-    const next = String(message || "").slice(0, 1000);
-    if (String(conn?.last_error || "") === next) return;
-    patch.last_error = next;
-  }
-  await db("ms_connection?is_active=eq.true", { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify(patch) });
-}
-
-function pickHarRequest(har: any) {
-  const entries = Array.isArray(har?.log?.entries) ? har.log.entries : [];
-  const matches = entries.filter((e: any) => {
-    try {
-      const u = new URL(e?.request?.url || "");
-      return u.hostname === "fbi.flashexpress.com" && u.pathname === "/api/dc/unfinished_parcel_list" && e?.request?.method === "GET";
-    } catch { return false; }
-  });
-  if (!matches.length) throw new Error("HAR นี้ไม่มี request /api/dc/unfinished_parcel_list");
-  const req = matches[matches.length - 1].request;
-  const url = new URL(req.url);
-  const ignored = new Set(["page", "page_size", "export", "total"]);
-  const publicKeys = new Set(["lang", "_from", "store_id", "key", "time_key"]);
-  const queryTemplate: Record<string,string> = {};
-  const credential: Record<string,string> = {};
-  for (const [k,v] of url.searchParams.entries()) {
-    if (ignored.has(k)) continue;
-    if (publicKeys.has(k)) queryTemplate[k] = v; else credential[k] = v;
-  }
-  if (!queryTemplate.store_id || !credential.auth) throw new Error("HAR ไม่มี store_id หรือ auth ที่จำเป็น");
-  return { baseUrl: `${url.protocol}//${url.host}`, path: url.pathname, queryTemplate, credential };
-}
-
-function sourceHeaders(conn: any) {
-  return { "Accept": "application/json, text/plain, */*", "Accept-Language": "th", "BI-PLATFORM": "", "Referer": `${conn.fbi_base_url}/fbi-ui/`, "User-Agent": "Mozilla/5.0" };
-}
-function applyBase(url: URL, conn: any) {
-  const params = { ...(conn.query_template || {}), ...(conn.credential || {}) };
-  for (const [k,v] of Object.entries(params)) if (v !== undefined && v !== null && String(v) !== "") url.searchParams.set(k, String(v));
-}
-async function fetchJson(url: URL, conn: any) {
-  const res = await fetch(url.toString(), { method: "GET", headers: sourceHeaders(conn) });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`MS ${res.status}: ${text.slice(0, 300)}`);
-  let obj: any; try { obj = JSON.parse(text); } catch { throw new Error("MS ตอบกลับไม่ใช่ JSON"); }
-  if (Number(obj?.code) !== 1) throw new Error(obj?.msg || "MS ไม่อนุญาตให้อ่านข้อมูล");
-  return obj;
-}
-async function fetchLivePage(conn: any, page: number, pageSize: number) {
-  const url = new URL(conn.endpoint_path, conn.fbi_base_url); applyBase(url, conn);
-  url.searchParams.set("page", String(page)); url.searchParams.set("page_size", String(pageSize));
-  const obj = await fetchJson(url, conn);
-  return { rows: (Array.isArray(obj?.data?.list) ? obj.data.list : []).map(slimRow), total: Number(obj?.data?.total || 0) };
-}
-async function fetchSummary(conn: any) {
-  const url = new URL("/api/dc/dc_delivery_transfer_list", conn.fbi_base_url); applyBase(url, conn);
-  url.searchParams.delete("store_id"); url.searchParams.delete("time_key"); url.searchParams.set("type", "1"); url.searchParams.set("key", "transfer");
-  const obj = await fetchJson(url, conn);
-  const rows = Array.isArray(obj?.data?.data) ? obj.data.data : [];
-  const target = rows.find((r: any) => String(r?.store_id || "") === String(conn.store_id || "")) || rows[0] || {};
-  return { storeId: target.store_id || conn.store_id || "", storeName: target.store_name || conn.store_name || "", region: target.store_area || "", total: Number(target.transfer_total || 0), day1: Number(target.transfer_1 || 0), day2: Number(target.transfer_2 || 0), day3: Number(target.transfer_3 || 0), day4: Number(target.transfer_4 || 0), day5plus: Number(target.transfer_5 || 0) };
-}
-
-function liveResponseFromCache(c: any, knownHash: string, profileRole: string, cache = "hit", stale = false, error = "") {
-  const p = c?.payload || {};
-  const hash = String(c?.content_hash || p?.hash || "");
-  const base = { total: Number(c?.source_total ?? p?.total ?? 0), page: Number(p?.page || 1), pageSize: Number(p?.pageSize || 100), sourceAt: c?.source_updated_at || p?.sourceAt || new Date().toISOString(), hash };
-  if (knownHash && hash && knownHash === hash) return json({ ok: true, data: { ...base, notModified: true, changed: false }, meta: { cache, stale, error: error || undefined, profileRole } });
-  if (knownHash && c?.previous_hash && knownHash === c.previous_hash && c?.delta_payload) return json({ ok: true, data: { ...base, delta: c.delta_payload, changed: true }, meta: { cache, stale, error: error || undefined, profileRole } });
-  return json({ ok: true, data: { ...base, rows: Array.isArray(p?.rows) ? p.rows.map(slimRow) : [], changed: !!p?.changed }, meta: { cache, stale, error: error || undefined, profileRole } });
-}
-
-async function listUsers() {
-  return await db("app_profiles?select=user_id,email,display_name,role,access_status,created_at,updated_at&order=created_at.asc");
-}
-async function changeUserAccess(actorId: string, targetId: string, action: string) {
-  if (!targetId) throw new Error("ไม่พบผู้ใช้");
-  if (targetId === actorId && action === "disable") throw new Error("ไม่สามารถปิดสิทธิ์บัญชี Admin ที่กำลังใช้งานได้");
-  const target = await db(`app_profiles?user_id=eq.${encodeURIComponent(targetId)}&select=user_id,role,access_status&limit=1`);
-  if (!target?.[0]) throw new Error("ไม่พบผู้ใช้");
-  if (target[0].role === "admin" && action === "disable") throw new Error("ไม่สามารถปิดสิทธิ์ Admin ผ่านหน้าจอนี้ได้");
-  const access_status = action === "approve" ? "active" : action === "disable" ? "disabled" : action === "pending" ? "pending" : "";
-  if (!access_status) throw new Error("คำสั่งจัดการผู้ใช้ไม่ถูกต้อง");
-  const updated = await db(`app_profiles?user_id=eq.${encodeURIComponent(targetId)}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify({ access_status, updated_at: new Date().toISOString() }) });
-  return updated?.[0] || null;
-}
-
-Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
-  const claims = jwtClaims(req); const userId = claims.sub;
-  if (!userId) return json({ ok: false, message: "Unauthorized" }, 401);
-  try {
-    const profile = await ensureProfile(userId, claims.email);
-    const u = new URL(req.url); const route = u.pathname.split("/").filter(Boolean).pop() || "";
-
-    if (req.method === "POST" && route === "claim-admin") {
-      if (profile.role === "admin") return json({ ok: true, data: { profile, alreadyAdmin: true } });
-      let body: any = {}; try { body = await req.json(); } catch {}
-      try { return json({ ok: true, data: { profile: await claimAdmin(userId, String(body?.code || "")) } }); }
-      catch (err) { return json({ ok: false, message: err instanceof Error ? err.message : String(err) }, 403); }
+Deno.serve(async(req)=>{
+  if(req.method==='OPTIONS')return new Response(null,{status:204,headers:cors});
+  const u=new URL(req.url),route=u.pathname.split('/').filter(Boolean).pop()||'';
+  try{
+    if(req.method==='POST'&&route==='login'){
+      let body:any={};try{body=await req.json();}catch{}
+      const username=normalizeUsername(body?.username),password=String(body?.password||'');
+      if(!validUsername(username)||!password)return json({ok:false,message:'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง'},401);
+      const rows=await db(`app_profiles?username=ilike.${encodeURIComponent(username)}&select=email,access_status&limit=1`),p=rows?.[0];
+      if(!p?.email)return json({ok:false,message:'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง'},401);
+      let session;try{session=await authPasswordLogin(String(p.email),password);}catch{return json({ok:false,message:'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง'},401);}
+      if(p.access_status==='disabled')return json({ok:false,message:'บัญชีนี้ถูกระงับการใช้งาน'},403);
+      return json({ok:true,data:{session}});
     }
 
-    if (route === "users") {
-      if (profile.role !== "admin" || profile.access_status !== "active") return json({ ok: false, message: "Admin only" }, 403);
-      if (req.method === "GET") return json({ ok: true, data: { users: await listUsers() } });
-      if (req.method === "POST") {
-        let body: any = {}; try { body = await req.json(); } catch {}
-        return json({ ok: true, data: { user: await changeUserAccess(userId, String(body?.userId || ""), String(body?.action || "")) } });
+    const authUser=await authenticate(req);
+    if(!authUser)return json({ok:false,message:'Unauthorized'},401);
+    const profile=await ensureProfile(authUser.id,authUser.email);
+    if(!profile)return json({ok:false,message:'ไม่พบโปรไฟล์ผู้ใช้'},403);
+
+    if(route==='users'){
+      if(profile.role!=='admin'||profile.access_status!=='active')return json({ok:false,message:'Admin only'},403);
+      if(req.method==='GET')return json({ok:true,data:{users:await listUsers(),branches:await listBranches(true)}});
+      if(req.method==='POST'){
+        let body:any={};try{body=await req.json();}catch{}
+        if(String(body?.action||'')==='create')return json({ok:true,data:{user:await createManagedUser(body)}});
+        return json({ok:true,data:{user:await changeUser(authUser.id,body)}});
       }
     }
 
-    if (req.method === "GET" && route === "status") {
-      const conn = await db("ms_connection?is_active=eq.true&select=label,store_id,store_name,credential_updated_at,last_ok_at,last_error&limit=1");
-      const canClaimAdmin = profile.role !== "admin" ? await adminClaimAvailable() : false;
-      return json({ ok: true, data: { profile, connection: conn?.[0] || null, canClaimAdmin } });
-    }
-
-    if (profile.access_status !== "active") return json({ ok: false, message: profile.access_status === "disabled" ? "บัญชีนี้ถูกระงับการใช้งาน" : "บัญชีนี้กำลังรอ Admin อนุมัติ" }, 403);
-
-    if (req.method === "POST" && route === "har") {
-      if (profile.role !== "admin") return json({ ok: false, message: "Admin only" }, 403);
-      const text = await req.text(); if (text.length > 25_000_000) return json({ ok: false, message: "HAR ใหญ่เกิน 25 MB" }, 413);
-      let har: any; try { har = JSON.parse(text); } catch { return json({ ok: false, message: "ไฟล์ HAR ไม่ใช่ JSON ที่ถูกต้อง" }, 400); }
-      const found = pickHarRequest(har); const encryptedCredential = await encryptCredential(found.credential);
-      await db("ms_connection?is_active=eq.true", { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ fbi_base_url: found.baseUrl, endpoint_path: found.path, store_id: found.queryTemplate.store_id || null, query_template: found.queryTemplate, credential_ciphertext: encryptedCredential, credential_updated_at: new Date().toISOString(), last_error: null, updated_at: new Date().toISOString() }) });
-      await db("live_cache_pages?cache_key=not.is.null", { method: "DELETE" }); await db("summary_cache?cache_key=not.is.null", { method: "DELETE" }); await db("cache_refresh_leases?cache_key=not.is.null", { method: "DELETE" });
-      return json({ ok: true, data: { storeId: found.queryTemplate.store_id, credentialKeys: Object.keys(found.credential).sort() } });
-    }
-
-    if (req.method === "GET" && route === "summary") {
-      const cacheKey = "transfer-summary";
-      const cached = await db(`summary_cache?cache_key=eq.${cacheKey}&select=*&limit=1`); const c = cached?.[0];
-      if (c && new Date(c.expires_at).getTime() > Date.now()) return json({ ok: true, data: c.payload, meta: { cache: "hit", expiresAt: c.expires_at, profileRole: profile.role } });
-      const conn = await getConnection();
-      try {
-        const summary = await fetchSummary(conn); const sourceAt = new Date().toISOString(); const contentHash = await hashSummary(summary); const expiresAt = new Date(Date.now() + 60_000).toISOString();
-        const payload = { ...summary, sourceAt };
-        if (c?.content_hash === contentHash) await db(`summary_cache?cache_key=eq.${cacheKey}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ source_updated_at: sourceAt, expires_at: expiresAt }) });
-        else await db("summary_cache?on_conflict=cache_key", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ cache_key: cacheKey, payload, content_hash: contentHash, source_updated_at: sourceAt, expires_at: expiresAt }) });
-        await updateConnectionHealth(conn, true); return json({ ok: true, data: payload, meta: { cache: "miss", ttlMs: 60000, profileRole: profile.role } });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err); await updateConnectionHealth(conn, false, message);
-        if (c?.payload) return json({ ok: true, data: c.payload, meta: { cache: "stale", stale: true, error: message, profileRole: profile.role } });
-        return json({ ok: false, message }, 502);
+    if(route==='branches'){
+      if(profile.role!=='admin'||profile.access_status!=='active')return json({ok:false,message:'Admin only'},403);
+      if(req.method==='GET')return json({ok:true,data:{branches:await listBranches(false)}});
+      if(req.method==='POST'){
+        let body:any={};try{body=await req.json();}catch{}
+        if(String(body?.action||'')==='create')return json({ok:true,data:{branch:await createBranch(body)}});
+        return json({ok:false,message:'คำสั่งสาขาไม่ถูกต้อง'},400);
       }
     }
 
-    if (req.method === "GET" && route === "live") {
-      const page = Math.max(1, Math.min(100000, Number(u.searchParams.get("page") || 1) || 1));
-      const pageSize = Math.max(10, Math.min(100, Number(u.searchParams.get("page_size") || 100) || 100));
-      const knownHash = String(u.searchParams.get("known_hash") || "").slice(0, 128);
-      const cacheKey = `p:${page}:s:${pageSize}`;
-      const cached = await db(`live_cache_pages?cache_key=eq.${encodeURIComponent(cacheKey)}&select=*&limit=1`); const c = cached?.[0];
-      if (c && c.content_hash && new Date(c.expires_at).getTime() > Date.now()) return liveResponseFromCache(c, knownHash, profile.role, "hit");
-      const conn = await getConnection();
-      try {
-        const fresh = await fetchLivePage(conn, page, pageSize); const now = new Date().toISOString();
-        const oldRows = Array.isArray(c?.payload?.rows) ? c.payload.rows.map(slimRow) : []; const oldTotal = Number(c?.source_total ?? c?.payload?.total ?? 0);
-        const oldHash = String(c?.content_hash || (oldRows.length ? await hashPage(oldRows, oldTotal) : "")); const newHash = await hashPage(fresh.rows, fresh.total);
-        const changed = !c?.content_hash || oldHash !== newHash; const ttlMs = changed ? 8000 : 15000; const expiresAt = new Date(Date.now() + ttlMs).toISOString();
-        let delta: any = null;
-        if (changed) {
-          delta = oldHash ? diffRows(oldRows, fresh.rows) : null;
-          const payload = { rows: fresh.rows, total: fresh.total, page, pageSize, changed: true };
-          await db("live_cache_pages?on_conflict=cache_key", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ cache_key: cacheKey, payload, item_count: fresh.rows.length, source_total: fresh.total, content_hash: newHash, previous_hash: oldHash || null, delta_payload: delta, source_updated_at: now, expires_at: expiresAt }) });
-        } else {
-          await db(`live_cache_pages?cache_key=eq.${encodeURIComponent(cacheKey)}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ source_updated_at: now, expires_at: expiresAt, item_count: fresh.rows.length, source_total: fresh.total }) });
-        }
-        if (page === 1) await db(`live_cache_pages?expires_at=lt.${encodeURIComponent(new Date(Date.now() - 60 * 60_000).toISOString())}`, { method: "DELETE" });
-        await updateConnectionHealth(conn, true);
-        const base = { total: fresh.total, page, pageSize, sourceAt: now, hash: newHash };
-        if (knownHash && knownHash === newHash) return json({ ok: true, data: { ...base, notModified: true, changed: false }, meta: { cache: "miss", ttlMs, profileRole: profile.role } });
-        if (changed && delta && knownHash && knownHash === oldHash) return json({ ok: true, data: { ...base, delta, changed: true }, meta: { cache: "miss", ttlMs, profileRole: profile.role } });
-        return json({ ok: true, data: { ...base, rows: fresh.rows, changed }, meta: { cache: "miss", ttlMs, profileRole: profile.role } });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err); await updateConnectionHealth(conn, false, message);
-        if (c?.payload) return liveResponseFromCache(c, knownHash, profile.role, "stale", true, message);
-        return json({ ok: false, message }, 502);
-      }
+    if(req.method==='GET'&&route==='status'){
+      const requested=asBranchId(u.searchParams.get('branch_id'));
+      let branch:any=null;try{branch=await resolveBranch(profile,requested);}catch{}
+      const branches=profile.role==='admin'?await listBranches(true):(branch?[branch]:[]);
+      const conn=branch?(await db(`ms_connection?branch_id=eq.${branch.id}&select=branch_id,label,store_id,store_name,credential_updated_at,last_ok_at,last_error&limit=1`))?.[0]||null:null;
+      return json({ok:true,data:{profile:publicProfile(profile),branch,branches,connection:conn}});
     }
 
-    return json({ ok: false, message: "Not found" }, 404);
-  } catch (err) { return json({ ok: false, message: err instanceof Error ? err.message : String(err) }, 500); }
+    if(profile.access_status!=='active')return json({ok:false,message:profile.access_status==='disabled'?'บัญชีนี้ถูกระงับการใช้งาน':'บัญชีนี้ยังไม่เปิดใช้งาน'},403);
+    const requestedBranch=asBranchId(u.searchParams.get('branch_id')),branch=await resolveBranch(profile,requestedBranch),branchId=Number(branch.id);
+
+    if(req.method==='POST'&&route==='har'){
+      const allowed=profile.role==='admin'||(!!profile.can_upload_har&&Number(profile.branch_id||0)===branchId);
+      if(!allowed)return json({ok:false,message:'ไม่มีสิทธิ์อัปโหลด HAR ของสาขานี้'},403);
+      const text=await req.text();if(text.length>25_000_000)return json({ok:false,message:'HAR ใหญ่เกิน 25 MB'},413);
+      let har:any;try{har=JSON.parse(text);}catch{return json({ok:false,message:'ไฟล์ HAR ไม่ใช่ JSON ที่ถูกต้อง'},400);}
+      const found=pickHarRequest(har),encrypted=await encryptCredential(found.credential),existing=await db(`ms_connection?branch_id=eq.${branchId}&select=id&limit=1`);
+      const patch={branch_id:branchId,label:branch.code,store_id:found.queryTemplate.store_id||null,store_name:branch.name,fbi_base_url:found.baseUrl,endpoint_path:found.path,query_template:found.queryTemplate,credential_ciphertext:encrypted,credential_updated_at:new Date().toISOString(),last_error:null,is_active:true,updated_at:new Date().toISOString()};
+      if(existing?.[0])await db(`ms_connection?id=eq.${existing[0].id}`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify(patch)});
+      else await db('ms_connection',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify(patch)});
+      await db(`branches?id=eq.${branchId}`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify({store_id:found.queryTemplate.store_id||null,updated_at:new Date().toISOString()})});
+      await db(`live_cache_pages?branch_id=eq.${branchId}`,{method:'DELETE'});await db(`summary_cache?branch_id=eq.${branchId}`,{method:'DELETE'});await db(`cache_refresh_leases?branch_id=eq.${branchId}`,{method:'DELETE'});
+      return json({ok:true,data:{branchId,storeId:found.queryTemplate.store_id}});
+    }
+
+    if(req.method==='GET'&&route==='summary'){
+      const cacheKey=`b:${branchId}:summary:transfer-summary`,cached=await db(`summary_cache?cache_key=eq.${encodeURIComponent(cacheKey)}&select=*&limit=1`),c=cached?.[0];
+      if(c&&new Date(c.expires_at).getTime()>Date.now())return json({ok:true,data:c.payload,meta:{cache:'hit',expiresAt:c.expires_at,ttlMs:Math.max(0,new Date(c.expires_at).getTime()-Date.now()),branchId}});
+      const conn=await getConnection(branchId);
+      try{
+        const summary=await fetchSummary(conn),sourceAt=new Date().toISOString(),hash=await hashSummary(summary),expiresAt=new Date(Date.now()+60_000).toISOString(),payload={...summary,sourceAt,branchId};
+        if(c?.content_hash===hash)await db(`summary_cache?cache_key=eq.${encodeURIComponent(cacheKey)}`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify({source_updated_at:sourceAt,expires_at:expiresAt})});
+        else await db('summary_cache?on_conflict=cache_key',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({cache_key:cacheKey,branch_id:branchId,payload,content_hash:hash,source_updated_at:sourceAt,expires_at:expiresAt})});
+        await updateConnectionHealth(conn,true);
+        return json({ok:true,data:payload,meta:{cache:'miss',ttlMs:60000,branchId}});
+      }catch(e){const m=errMessage(e);await updateConnectionHealth(conn,false,m);if(c?.payload)return json({ok:true,data:c.payload,meta:{cache:'stale',stale:true,error:m,ttlMs:15000,branchId}});return json({ok:false,message:m},502);}
+    }
+
+    if(req.method==='GET'&&route==='live'){
+      const page=Math.max(1,Math.min(100000,Number(u.searchParams.get('page')||1)||1)),requestedSize=Number(u.searchParams.get('page_size')||100),pageSize=[20,50,100].includes(requestedSize)?requestedSize:100,knownHash=String(u.searchParams.get('known_hash')||'').slice(0,128),cacheKey=`b:${branchId}:p:${page}:s:${pageSize}`,cached=await db(`live_cache_pages?cache_key=eq.${encodeURIComponent(cacheKey)}&select=*&limit=1`),c=cached?.[0];
+      if(c?.content_hash&&new Date(c.expires_at).getTime()>Date.now())return liveResponseFromCache(c,knownHash,profile.role,'hit');
+      const conn=await getConnection(branchId);
+      try{
+        const fresh=await fetchLivePage(conn,page,pageSize),now=new Date().toISOString(),oldRows=Array.isArray(c?.payload?.rows)?c.payload.rows:[],oldHash=await oldHashForCache(c),newHash=await hashPage(fresh.rows,fresh.total),changed=!c?.content_hash||oldHash!==newHash,streak=changed?0:Number(c?.unchanged_streak||0)+1,ttlMs=changed?8000:(streak>=5?30000:15000),expiresAt=new Date(Date.now()+ttlMs).toISOString();
+        let delta:any=null;
+        if(changed){delta=oldHash?diffRows(oldRows,fresh.rows):null;const payload={rows:fresh.rows,total:fresh.total,page,pageSize,changed:true,branchId};await db('live_cache_pages?on_conflict=cache_key',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({cache_key:cacheKey,branch_id:branchId,payload,item_count:fresh.rows.length,source_total:fresh.total,content_hash:newHash,previous_hash:oldHash||null,delta_payload:delta,unchanged_streak:0,source_updated_at:now,expires_at:expiresAt})});}
+        else await db(`live_cache_pages?cache_key=eq.${encodeURIComponent(cacheKey)}`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify({source_updated_at:now,expires_at:expiresAt,item_count:fresh.rows.length,source_total:fresh.total,unchanged_streak:streak})});
+        if(page===1)await db(`live_cache_pages?branch_id=eq.${branchId}&expires_at=lt.${encodeURIComponent(new Date(Date.now()-60*60_000).toISOString())}`,{method:'DELETE'});
+        await updateConnectionHealth(conn,true);
+        const base={total:fresh.total,page,pageSize,sourceAt:now,hash:newHash,branchId};
+        if(knownHash&&knownHash===newHash)return json({ok:true,data:{...base,notModified:true,changed:false},meta:{cache:'miss',ttlMs,branchId}});
+        if(changed&&delta&&knownHash&&knownHash===oldHash)return json({ok:true,data:{...base,delta,changed:true},meta:{cache:'miss',ttlMs,branchId}});
+        return json({ok:true,data:{...base,rows:fresh.rows,changed},meta:{cache:'miss',ttlMs,branchId}});
+      }catch(e){const m=errMessage(e);await updateConnectionHealth(conn,false,m);if(c?.payload)return liveResponseFromCache(c,knownHash,profile.role,'stale',true,m);return json({ok:false,message:m},502);}
+    }
+
+    return json({ok:false,message:'Not found'},404);
+  }catch(e){return json({ok:false,message:errMessage(e)},500);}
 });
