@@ -46,7 +46,7 @@ async function setSession(session) {
   clearTimeout(state.timer); clearTimeout(state.summaryTimer);
   if (!session) {
     $('login-dialog').showModal();
-    $('logout-btn').classList.add('hidden'); $('refresh-btn').classList.add('hidden'); $('upload-har-btn').classList.add('hidden'); $('claim-admin-btn').classList.add('hidden');
+    $('logout-btn').classList.add('hidden'); $('refresh-btn').classList.add('hidden'); $('upload-har-btn').classList.add('hidden'); $('manage-users-btn').classList.add('hidden'); $('claim-admin-btn').classList.add('hidden');
     $('loading-state').textContent = 'กรุณาเข้าสู่ระบบ'; $('table-wrap').classList.add('hidden'); $('mobile-cards').classList.add('hidden');
     setConnection('neutral','ยังไม่ได้เข้าสู่ระบบ'); $('source-sync').textContent='ยังไม่ได้เชื่อมต่อ';
     return;
@@ -56,11 +56,20 @@ async function setSession(session) {
   try {
     const status = await api('status');
     state.profileRole = status.data.profile?.role || 'viewer';
-    $('upload-har-btn').classList.toggle('hidden', state.profileRole !== 'admin');
+    const accessStatus = status.data.profile?.access_status || 'pending';
+    $('upload-har-btn').classList.toggle('hidden', state.profileRole !== 'admin' || accessStatus !== 'active');
+    $('manage-users-btn').classList.toggle('hidden', state.profileRole !== 'admin' || accessStatus !== 'active');
     $('claim-admin-btn').classList.toggle('hidden', state.profileRole === 'admin' || !status.data.canClaimAdmin);
     const c = status.data.connection;
     if (c?.last_error) setConnection('bad','MS มีปัญหา'); else setConnection('ok','ออนไลน์');
     $('source-sync').textContent = c?.store_name || c?.store_id || 'เชื่อมต่อแล้ว';
+    if (accessStatus !== 'active') {
+      setConnection('neutral', accessStatus === 'disabled' ? 'ถูกระงับ' : 'รออนุมัติ');
+      $('source-sync').textContent = accessStatus === 'disabled' ? 'บัญชีถูกระงับการใช้งาน' : 'รอ Admin อนุมัติบัญชี';
+      $('loading-state').textContent = accessStatus === 'disabled' ? 'บัญชีนี้ถูกระงับการใช้งาน' : 'บัญชีนี้กำลังรอ Admin อนุมัติ';
+      $('loading-state').classList.remove('hidden'); $('table-wrap').classList.add('hidden'); $('mobile-cards').classList.add('hidden');
+      return;
+    }
   } catch (e) { setConnection('bad','เชื่อมต่อไม่ได้'); $('source-sync').textContent=e.message; }
   await Promise.allSettled([loadSummary(true), loadPage(true)]);
 }
@@ -109,7 +118,7 @@ function renderRows(){const rows=filteredRows(); $('loading-state').classList.to
 }
 
 $('login-form').addEventListener('submit',async e=>{e.preventDefault();$('login-error').classList.add('hidden');const {error}=await supabase.auth.signInWithPassword({email:$('email').value.trim(),password:$('password').value});if(error){$('login-error').textContent=error.message;$('login-error').classList.remove('hidden');}});
-$('signup-btn').addEventListener('click',async()=>{const email=$('email').value.trim(),password=$('password').value;if(!email||password.length<6){$('login-error').textContent='กรอกอีเมลและรหัสผ่านอย่างน้อย 6 ตัวอักษร';$('login-error').classList.remove('hidden');return;}const {error}=await supabase.auth.signUp({email,password});$('login-error').textContent=error?error.message:'สร้างบัญชีแล้ว หากระบบขอยืนยันอีเมล กรุณายืนยันก่อนเข้าสู่ระบบ';$('login-error').classList.remove('hidden');});
+$('signup-btn').addEventListener('click',async()=>{const email=$('email').value.trim(),password=$('password').value;if(!email||password.length<6){$('login-error').textContent='กรอกอีเมลและรหัสผ่านอย่างน้อย 6 ตัวอักษร';$('login-error').classList.remove('hidden');return;}const {error}=await supabase.auth.signUp({email,password,options:{emailRedirectTo:'https://flashdevnak.github.io/ms-parcel-live/'}});$('login-error').textContent=error?error.message:'สร้างบัญชีแล้ว หากระบบขอยืนยันอีเมล กรุณายืนยันก่อนเข้าสู่ระบบ';$('login-error').classList.remove('hidden');});
 
 $('claim-admin-btn').addEventListener('click',()=>{$('claim-admin-status').textContent='';$('claim-admin-code').value='';$('claim-admin-dialog').showModal();});
 $('claim-admin-close').addEventListener('click',()=>$('claim-admin-dialog').close());
@@ -125,6 +134,29 @@ $('claim-admin-form').addEventListener('submit',async e=>{
     setTimeout(()=>{if($('claim-admin-dialog').open)$('claim-admin-dialog').close();},500);
   } catch(err) { $('claim-admin-status').textContent=`ไม่สำเร็จ: ${err.message}`; }
 });
+
+async function loadUsers(){
+  $('users-status').textContent='กำลังโหลดรายชื่อ…';
+  try {
+    const out=await api('users'); const users=out.data?.users||[];
+    $('users-status').textContent=`ทั้งหมด ${users.length} บัญชี`;
+    $('users-list').innerHTML=users.map(u=>{
+      const status=u.access_status||'pending';
+      const isAdmin=u.role==='admin';
+      const actions=isAdmin?'':status==='pending'?`<button class="btn btn-accent user-action" data-id="${esc(u.user_id)}" data-action="approve">อนุมัติ</button><button class="btn btn-header user-action" data-id="${esc(u.user_id)}" data-action="disable">ระงับ</button>`:status==='active'?`<button class="btn btn-header user-action" data-id="${esc(u.user_id)}" data-action="disable">ระงับ</button>`:`<button class="btn btn-accent user-action" data-id="${esc(u.user_id)}" data-action="approve">เปิดใช้งาน</button>`;
+      return `<article class="user-row"><div><strong>${esc(u.email||u.display_name||u.user_id)}</strong><small>${esc(u.role)} · ${esc(status)}</small></div><div class="user-row-actions">${actions}</div></article>`;
+    }).join('')||'<div class="empty-state">ยังไม่มีผู้ใช้</div>';
+    document.querySelectorAll('.user-action').forEach(btn=>btn.addEventListener('click',async()=>{
+      btn.disabled=true;
+      try{await api('users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:btn.dataset.id,action:btn.dataset.action})});await loadUsers();}
+      catch(err){$('users-status').textContent=`ไม่สำเร็จ: ${err.message}`;}
+      finally{btn.disabled=false;}
+    }));
+  } catch(err){$('users-status').textContent=`โหลดไม่สำเร็จ: ${err.message}`;}
+}
+$('manage-users-btn').addEventListener('click',()=>{$('users-dialog').showModal();loadUsers();});
+$('users-close').addEventListener('click',()=>$('users-dialog').close());
+$('users-refresh').addEventListener('click',loadUsers);
 
 $('logout-btn').addEventListener('click',()=>supabase.auth.signOut()); $('refresh-btn').addEventListener('click',()=>Promise.allSettled([loadSummary(true),loadPage(true)]));
 $('upload-har-btn').addEventListener('click',()=>$('har-dialog').showModal()); $('har-close').addEventListener('click',()=>$('har-dialog').close());
