@@ -81,8 +81,7 @@ async function ensureProfile(userId: string, email: string) {
     return rows[0];
   }
   const created = await db("app_profiles", {
-    method: "POST",
-    headers: { Prefer: "return=representation" },
+    method: "POST", headers: { Prefer: "return=representation" },
     body: JSON.stringify({ user_id: userId, email: email || null, role: "viewer", access_status: "pending" }),
   });
   return created?.[0] || { user_id: userId, email, role: "viewer", access_status: "pending" };
@@ -92,6 +91,58 @@ async function sha256Hex(value: string) {
   const data = new TextEncoder().encode(value);
   const digest = await crypto.subtle.digest("SHA-256", data);
   return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+async function hashPage(rows: any[], total: number) {
+  return await sha256Hex(JSON.stringify({ rows, total }));
+}
+async function hashSummary(value: any) {
+  return await sha256Hex(JSON.stringify(value));
+}
+
+function slimRow(r: any) {
+  return {
+    pno: r?.pno ?? null,
+    state_name: r?.state_name ?? null,
+    cod_amount: r?.cod_amount ?? null,
+    store_weight: r?.store_weight ?? null,
+    plan_leave_time: r?.plan_leave_time ?? null,
+    real_arrive_time: r?.real_arrive_time ?? null,
+    pack_num: r?.pack_num ?? null,
+    marker_category_name: r?.marker_category_name ?? null,
+    LastAction_name: r?.LastAction_name ?? null,
+    LastActionTime: r?.LastActionTime ?? null,
+    staff_info_name: r?.staff_info_name ?? null,
+    staff_info_phone: r?.staff_info_phone ?? null,
+    dst_hub_name: r?.dst_hub_name ?? null,
+    dst_store_name: r?.dst_store_name ?? null,
+    dst_province_name: r?.dst_province_name ?? null,
+    dst_city_name: r?.dst_city_name ?? null,
+    dst_postal_code: r?.dst_postal_code ?? null,
+    ka_id: r?.ka_id ?? null,
+    ka_name: r?.ka_name ?? null,
+    customer_type_category: r?.customer_type_category ?? null,
+  };
+}
+
+function diffRows(oldRows: any[], newRows: any[]) {
+  const oldMap = new Map<string,string>();
+  const oldKeys = new Set<string>();
+  for (const row of oldRows) {
+    const k = String(row?.pno || "");
+    if (!k) continue;
+    oldKeys.add(k); oldMap.set(k, JSON.stringify(row));
+  }
+  const nextKeys = new Set<string>();
+  const upserts: any[] = [];
+  const order: string[] = [];
+  for (const row of newRows) {
+    const k = String(row?.pno || "");
+    if (!k) continue;
+    nextKeys.add(k); order.push(k);
+    if (oldMap.get(k) !== JSON.stringify(row)) upserts.push(row);
+  }
+  const removed = [...oldKeys].filter(k => !nextKeys.has(k));
+  return { upserts, removed, order };
 }
 
 async function adminClaimAvailable() {
@@ -108,19 +159,14 @@ async function claimAdmin(userId: string, code: string) {
   const rows = await db("app_settings?key=eq.admin_bootstrap&select=value_hash,used_at&limit=1");
   const row = rows?.[0];
   if (!row || row.used_at) throw new Error("รหัสเปิดสิทธิ์นี้ถูกใช้แล้ว");
-  const hash = await sha256Hex(code);
-  if (hash !== String(row.value_hash || "")) throw new Error("รหัสเปิดสิทธิ์ไม่ถูกต้อง");
-
+  if (await sha256Hex(code) !== String(row.value_hash || "")) throw new Error("รหัสเปิดสิทธิ์ไม่ถูกต้อง");
   const reserved = await db("app_settings?key=eq.admin_bootstrap&used_at=is.null", {
-    method: "PATCH",
-    headers: { Prefer: "return=representation" },
+    method: "PATCH", headers: { Prefer: "return=representation" },
     body: JSON.stringify({ used_at: new Date().toISOString(), used_by: userId, updated_at: new Date().toISOString() }),
   });
   if (!reserved?.length) throw new Error("รหัสเปิดสิทธิ์ถูกใช้งานไปแล้ว");
-
   const promoted = await db(`app_profiles?user_id=eq.${encodeURIComponent(userId)}`, {
-    method: "PATCH",
-    headers: { Prefer: "return=representation" },
+    method: "PATCH", headers: { Prefer: "return=representation" },
     body: JSON.stringify({ role: "admin", access_status: "active", updated_at: new Date().toISOString() }),
   });
   if (!promoted?.length) throw new Error("ไม่สามารถเปิดสิทธิ์ผู้ดูแลได้");
@@ -135,8 +181,7 @@ async function getConnection() {
   if (decoded.legacy && Object.keys(decoded.credential).length) {
     const encrypted = await encryptCredential(decoded.credential);
     await db(`ms_connection?id=eq.${row.id}`, {
-      method: "PATCH",
-      headers: { Prefer: "return=minimal" },
+      method: "PATCH", headers: { Prefer: "return=minimal" },
       body: JSON.stringify({ credential_ciphertext: encrypted, updated_at: new Date().toISOString() }),
     });
   }
@@ -149,18 +194,13 @@ async function updateConnectionHealth(conn: any, ok: boolean, message = "") {
     const last = Date.parse(String(conn?.last_ok_at || ""));
     const due = !Number.isFinite(last) || Date.now() - last >= 15 * 60_000 || !!conn?.last_error;
     if (!due) return;
-    patch.last_ok_at = new Date().toISOString();
-    patch.last_error = null;
+    patch.last_ok_at = new Date().toISOString(); patch.last_error = null;
   } else {
     const next = String(message || "").slice(0, 1000);
     if (String(conn?.last_error || "") === next) return;
     patch.last_error = next;
   }
-  await db("ms_connection?is_active=eq.true", {
-    method: "PATCH",
-    headers: { Prefer: "return=minimal" },
-    body: JSON.stringify(patch),
-  });
+  await db("ms_connection?is_active=eq.true", { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify(patch) });
 }
 
 function pickHarRequest(har: any) {
@@ -180,81 +220,54 @@ function pickHarRequest(har: any) {
   const credential: Record<string,string> = {};
   for (const [k,v] of url.searchParams.entries()) {
     if (ignored.has(k)) continue;
-    if (publicKeys.has(k)) queryTemplate[k] = v;
-    else credential[k] = v;
+    if (publicKeys.has(k)) queryTemplate[k] = v; else credential[k] = v;
   }
   if (!queryTemplate.store_id || !credential.auth) throw new Error("HAR ไม่มี store_id หรือ auth ที่จำเป็น");
   return { baseUrl: `${url.protocol}//${url.host}`, path: url.pathname, queryTemplate, credential };
 }
 
 function sourceHeaders(conn: any) {
-  return {
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "th",
-    "BI-PLATFORM": "",
-    "Referer": `${conn.fbi_base_url}/fbi-ui/`,
-    "User-Agent": "Mozilla/5.0",
-  };
+  return { "Accept": "application/json, text/plain, */*", "Accept-Language": "th", "BI-PLATFORM": "", "Referer": `${conn.fbi_base_url}/fbi-ui/`, "User-Agent": "Mozilla/5.0" };
 }
-
 function applyBase(url: URL, conn: any) {
   const params = { ...(conn.query_template || {}), ...(conn.credential || {}) };
-  for (const [k,v] of Object.entries(params)) {
-    if (v !== undefined && v !== null && String(v) !== "") url.searchParams.set(k, String(v));
-  }
+  for (const [k,v] of Object.entries(params)) if (v !== undefined && v !== null && String(v) !== "") url.searchParams.set(k, String(v));
 }
-
 async function fetchJson(url: URL, conn: any) {
   const res = await fetch(url.toString(), { method: "GET", headers: sourceHeaders(conn) });
   const text = await res.text();
   if (!res.ok) throw new Error(`MS ${res.status}: ${text.slice(0, 300)}`);
-  let obj: any;
-  try { obj = JSON.parse(text); } catch { throw new Error("MS ตอบกลับไม่ใช่ JSON"); }
+  let obj: any; try { obj = JSON.parse(text); } catch { throw new Error("MS ตอบกลับไม่ใช่ JSON"); }
   if (Number(obj?.code) !== 1) throw new Error(obj?.msg || "MS ไม่อนุญาตให้อ่านข้อมูล");
   return obj;
 }
-
 async function fetchLivePage(conn: any, page: number, pageSize: number) {
-  const url = new URL(conn.endpoint_path, conn.fbi_base_url);
-  applyBase(url, conn);
-  url.searchParams.set("page", String(page));
-  url.searchParams.set("page_size", String(pageSize));
+  const url = new URL(conn.endpoint_path, conn.fbi_base_url); applyBase(url, conn);
+  url.searchParams.set("page", String(page)); url.searchParams.set("page_size", String(pageSize));
   const obj = await fetchJson(url, conn);
-  return {
-    rows: Array.isArray(obj?.data?.list) ? obj.data.list : [],
-    total: Number(obj?.data?.total || 0),
-  };
+  return { rows: (Array.isArray(obj?.data?.list) ? obj.data.list : []).map(slimRow), total: Number(obj?.data?.total || 0) };
 }
-
 async function fetchSummary(conn: any) {
-  const url = new URL("/api/dc/dc_delivery_transfer_list", conn.fbi_base_url);
-  applyBase(url, conn);
-  url.searchParams.delete("store_id");
-  url.searchParams.delete("time_key");
-  url.searchParams.set("type", "1");
-  url.searchParams.set("key", "transfer");
+  const url = new URL("/api/dc/dc_delivery_transfer_list", conn.fbi_base_url); applyBase(url, conn);
+  url.searchParams.delete("store_id"); url.searchParams.delete("time_key"); url.searchParams.set("type", "1"); url.searchParams.set("key", "transfer");
   const obj = await fetchJson(url, conn);
   const rows = Array.isArray(obj?.data?.data) ? obj.data.data : [];
   const target = rows.find((r: any) => String(r?.store_id || "") === String(conn.store_id || "")) || rows[0] || {};
-  return {
-    storeId: target.store_id || conn.store_id || "",
-    storeName: target.store_name || conn.store_name || "",
-    region: target.store_area || "",
-    total: Number(target.transfer_total || 0),
-    day1: Number(target.transfer_1 || 0),
-    day2: Number(target.transfer_2 || 0),
-    day3: Number(target.transfer_3 || 0),
-    day4: Number(target.transfer_4 || 0),
-    day5plus: Number(target.transfer_5 || 0),
-  };
+  return { storeId: target.store_id || conn.store_id || "", storeName: target.store_name || conn.store_name || "", region: target.store_area || "", total: Number(target.transfer_total || 0), day1: Number(target.transfer_1 || 0), day2: Number(target.transfer_2 || 0), day3: Number(target.transfer_3 || 0), day4: Number(target.transfer_4 || 0), day5plus: Number(target.transfer_5 || 0) };
 }
 
-function canonicalRows(rows: any[]) { return JSON.stringify(rows || []); }
+function liveResponseFromCache(c: any, knownHash: string, profileRole: string, cache = "hit", stale = false, error = "") {
+  const p = c?.payload || {};
+  const hash = String(c?.content_hash || p?.hash || "");
+  const base = { total: Number(c?.source_total ?? p?.total ?? 0), page: Number(p?.page || 1), pageSize: Number(p?.pageSize || 100), sourceAt: c?.source_updated_at || p?.sourceAt || new Date().toISOString(), hash };
+  if (knownHash && hash && knownHash === hash) return json({ ok: true, data: { ...base, notModified: true, changed: false }, meta: { cache, stale, error: error || undefined, profileRole } });
+  if (knownHash && c?.previous_hash && knownHash === c.previous_hash && c?.delta_payload) return json({ ok: true, data: { ...base, delta: c.delta_payload, changed: true }, meta: { cache, stale, error: error || undefined, profileRole } });
+  return json({ ok: true, data: { ...base, rows: Array.isArray(p?.rows) ? p.rows.map(slimRow) : [], changed: !!p?.changed }, meta: { cache, stale, error: error || undefined, profileRole } });
+}
 
 async function listUsers() {
   return await db("app_profiles?select=user_id,email,display_name,role,access_status,created_at,updated_at&order=created_at.asc");
 }
-
 async function changeUserAccess(actorId: string, targetId: string, action: string) {
   if (!targetId) throw new Error("ไม่พบผู้ใช้");
   if (targetId === actorId && action === "disable") throw new Error("ไม่สามารถปิดสิทธิ์บัญชี Admin ที่กำลังใช้งานได้");
@@ -263,44 +276,31 @@ async function changeUserAccess(actorId: string, targetId: string, action: strin
   if (target[0].role === "admin" && action === "disable") throw new Error("ไม่สามารถปิดสิทธิ์ Admin ผ่านหน้าจอนี้ได้");
   const access_status = action === "approve" ? "active" : action === "disable" ? "disabled" : action === "pending" ? "pending" : "";
   if (!access_status) throw new Error("คำสั่งจัดการผู้ใช้ไม่ถูกต้อง");
-  const updated = await db(`app_profiles?user_id=eq.${encodeURIComponent(targetId)}`, {
-    method: "PATCH", headers: { Prefer: "return=representation" },
-    body: JSON.stringify({ access_status, updated_at: new Date().toISOString() }),
-  });
+  const updated = await db(`app_profiles?user_id=eq.${encodeURIComponent(targetId)}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify({ access_status, updated_at: new Date().toISOString() }) });
   return updated?.[0] || null;
 }
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
-  const claims = jwtClaims(req);
-  const userId = claims.sub;
+  const claims = jwtClaims(req); const userId = claims.sub;
   if (!userId) return json({ ok: false, message: "Unauthorized" }, 401);
-
   try {
-    let profile = await ensureProfile(userId, claims.email);
-    const u = new URL(req.url);
-    const route = u.pathname.split("/").filter(Boolean).pop() || "";
+    const profile = await ensureProfile(userId, claims.email);
+    const u = new URL(req.url); const route = u.pathname.split("/").filter(Boolean).pop() || "";
 
     if (req.method === "POST" && route === "claim-admin") {
       if (profile.role === "admin") return json({ ok: true, data: { profile, alreadyAdmin: true } });
-      let body: any = {};
-      try { body = await req.json(); } catch {}
-      try {
-        const claimed = await claimAdmin(userId, String(body?.code || ""));
-        return json({ ok: true, data: { profile: claimed } });
-      } catch (err) {
-        return json({ ok: false, message: err instanceof Error ? err.message : String(err) }, 403);
-      }
+      let body: any = {}; try { body = await req.json(); } catch {}
+      try { return json({ ok: true, data: { profile: await claimAdmin(userId, String(body?.code || "")) } }); }
+      catch (err) { return json({ ok: false, message: err instanceof Error ? err.message : String(err) }, 403); }
     }
 
     if (route === "users") {
       if (profile.role !== "admin" || profile.access_status !== "active") return json({ ok: false, message: "Admin only" }, 403);
       if (req.method === "GET") return json({ ok: true, data: { users: await listUsers() } });
       if (req.method === "POST") {
-        let body: any = {};
-        try { body = await req.json(); } catch {}
-        const updated = await changeUserAccess(userId, String(body?.userId || ""), String(body?.action || ""));
-        return json({ ok: true, data: { user: updated } });
+        let body: any = {}; try { body = await req.json(); } catch {}
+        return json({ ok: true, data: { user: await changeUserAccess(userId, String(body?.userId || ""), String(body?.action || "")) } });
       }
     }
 
@@ -310,59 +310,31 @@ Deno.serve(async (req) => {
       return json({ ok: true, data: { profile, connection: conn?.[0] || null, canClaimAdmin } });
     }
 
-    if (profile.access_status !== "active") {
-      return json({ ok: false, message: profile.access_status === "disabled" ? "บัญชีนี้ถูกระงับการใช้งาน" : "บัญชีนี้กำลังรอ Admin อนุมัติ" }, 403);
-    }
+    if (profile.access_status !== "active") return json({ ok: false, message: profile.access_status === "disabled" ? "บัญชีนี้ถูกระงับการใช้งาน" : "บัญชีนี้กำลังรอ Admin อนุมัติ" }, 403);
 
     if (req.method === "POST" && route === "har") {
       if (profile.role !== "admin") return json({ ok: false, message: "Admin only" }, 403);
-      const text = await req.text();
-      if (text.length > 25_000_000) return json({ ok: false, message: "HAR ใหญ่เกิน 25 MB" }, 413);
-      let har: any;
-      try { har = JSON.parse(text); } catch { return json({ ok: false, message: "ไฟล์ HAR ไม่ใช่ JSON ที่ถูกต้อง" }, 400); }
-      const found = pickHarRequest(har);
-      const encryptedCredential = await encryptCredential(found.credential);
-      await db("ms_connection?is_active=eq.true", {
-        method: "PATCH",
-        headers: { Prefer: "return=minimal" },
-        body: JSON.stringify({
-          fbi_base_url: found.baseUrl,
-          endpoint_path: found.path,
-          store_id: found.queryTemplate.store_id || null,
-          query_template: found.queryTemplate,
-          credential_ciphertext: encryptedCredential,
-          credential_updated_at: new Date().toISOString(),
-          last_error: null,
-          updated_at: new Date().toISOString(),
-        }),
-      });
-      await db("live_cache_pages?cache_key=not.is.null", { method: "DELETE" });
-      await db("summary_cache?cache_key=not.is.null", { method: "DELETE" });
+      const text = await req.text(); if (text.length > 25_000_000) return json({ ok: false, message: "HAR ใหญ่เกิน 25 MB" }, 413);
+      let har: any; try { har = JSON.parse(text); } catch { return json({ ok: false, message: "ไฟล์ HAR ไม่ใช่ JSON ที่ถูกต้อง" }, 400); }
+      const found = pickHarRequest(har); const encryptedCredential = await encryptCredential(found.credential);
+      await db("ms_connection?is_active=eq.true", { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ fbi_base_url: found.baseUrl, endpoint_path: found.path, store_id: found.queryTemplate.store_id || null, query_template: found.queryTemplate, credential_ciphertext: encryptedCredential, credential_updated_at: new Date().toISOString(), last_error: null, updated_at: new Date().toISOString() }) });
+      await db("live_cache_pages?cache_key=not.is.null", { method: "DELETE" }); await db("summary_cache?cache_key=not.is.null", { method: "DELETE" }); await db("cache_refresh_leases?cache_key=not.is.null", { method: "DELETE" });
       return json({ ok: true, data: { storeId: found.queryTemplate.store_id, credentialKeys: Object.keys(found.credential).sort() } });
     }
 
     if (req.method === "GET" && route === "summary") {
       const cacheKey = "transfer-summary";
-      const cached = await db(`summary_cache?cache_key=eq.${cacheKey}&select=*&limit=1`);
-      const c = cached?.[0];
-      if (c && new Date(c.expires_at).getTime() > Date.now()) {
-        return json({ ok: true, data: c.payload, meta: { cache: "hit", expiresAt: c.expires_at, profileRole: profile.role } });
-      }
+      const cached = await db(`summary_cache?cache_key=eq.${cacheKey}&select=*&limit=1`); const c = cached?.[0];
+      if (c && new Date(c.expires_at).getTime() > Date.now()) return json({ ok: true, data: c.payload, meta: { cache: "hit", expiresAt: c.expires_at, profileRole: profile.role } });
       const conn = await getConnection();
       try {
-        const summary = await fetchSummary(conn);
-        const payload = { ...summary, sourceAt: new Date().toISOString() };
-        const expiresAt = new Date(Date.now() + 15_000).toISOString();
-        await db("summary_cache?on_conflict=cache_key", {
-          method: "POST",
-          headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-          body: JSON.stringify({ cache_key: cacheKey, payload, source_updated_at: new Date().toISOString(), expires_at: expiresAt }),
-        });
-        await updateConnectionHealth(conn, true);
-        return json({ ok: true, data: payload, meta: { cache: "miss", ttlMs: 15000, profileRole: profile.role } });
+        const summary = await fetchSummary(conn); const sourceAt = new Date().toISOString(); const contentHash = await hashSummary(summary); const expiresAt = new Date(Date.now() + 60_000).toISOString();
+        const payload = { ...summary, sourceAt };
+        if (c?.content_hash === contentHash) await db(`summary_cache?cache_key=eq.${cacheKey}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ source_updated_at: sourceAt, expires_at: expiresAt }) });
+        else await db("summary_cache?on_conflict=cache_key", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ cache_key: cacheKey, payload, content_hash: contentHash, source_updated_at: sourceAt, expires_at: expiresAt }) });
+        await updateConnectionHealth(conn, true); return json({ ok: true, data: payload, meta: { cache: "miss", ttlMs: 60000, profileRole: profile.role } });
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        await updateConnectionHealth(conn, false, message);
+        const message = err instanceof Error ? err.message : String(err); await updateConnectionHealth(conn, false, message);
         if (c?.payload) return json({ ok: true, data: c.payload, meta: { cache: "stale", stale: true, error: message, profileRole: profile.role } });
         return json({ ok: false, message }, 502);
       }
@@ -371,39 +343,37 @@ Deno.serve(async (req) => {
     if (req.method === "GET" && route === "live") {
       const page = Math.max(1, Math.min(100000, Number(u.searchParams.get("page") || 1) || 1));
       const pageSize = Math.max(10, Math.min(100, Number(u.searchParams.get("page_size") || 100) || 100));
+      const knownHash = String(u.searchParams.get("known_hash") || "").slice(0, 128);
       const cacheKey = `p:${page}:s:${pageSize}`;
-      const cached = await db(`live_cache_pages?cache_key=eq.${encodeURIComponent(cacheKey)}&select=*&limit=1`);
-      const c = cached?.[0];
-      if (c && new Date(c.expires_at).getTime() > Date.now()) {
-        return json({ ok: true, data: c.payload, meta: { cache: "hit", expiresAt: c.expires_at, profileRole: profile.role } });
-      }
-
+      const cached = await db(`live_cache_pages?cache_key=eq.${encodeURIComponent(cacheKey)}&select=*&limit=1`); const c = cached?.[0];
+      if (c && c.content_hash && new Date(c.expires_at).getTime() > Date.now()) return liveResponseFromCache(c, knownHash, profile.role, "hit");
       const conn = await getConnection();
       try {
-        const fresh = await fetchLivePage(conn, page, pageSize);
-        const oldRows = Array.isArray(c?.payload?.rows) ? c.payload.rows : [];
-        const changed = canonicalRows(oldRows) !== canonicalRows(fresh.rows) || Number(c?.payload?.total || -1) !== fresh.total;
-        const ttlMs = changed ? 7000 : 15000;
-        const payload = { rows: fresh.rows, total: fresh.total, page, pageSize, sourceAt: new Date().toISOString(), changed };
-        const expiresAt = new Date(Date.now() + ttlMs).toISOString();
-        await db("live_cache_pages?on_conflict=cache_key", {
-          method: "POST",
-          headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-          body: JSON.stringify({ cache_key: cacheKey, payload, item_count: fresh.rows.length, source_total: fresh.total, source_updated_at: new Date().toISOString(), expires_at: expiresAt }),
-        });
+        const fresh = await fetchLivePage(conn, page, pageSize); const now = new Date().toISOString();
+        const oldRows = Array.isArray(c?.payload?.rows) ? c.payload.rows.map(slimRow) : []; const oldTotal = Number(c?.source_total ?? c?.payload?.total ?? 0);
+        const oldHash = String(c?.content_hash || (oldRows.length ? await hashPage(oldRows, oldTotal) : "")); const newHash = await hashPage(fresh.rows, fresh.total);
+        const changed = !c?.content_hash || oldHash !== newHash; const ttlMs = changed ? 8000 : 15000; const expiresAt = new Date(Date.now() + ttlMs).toISOString();
+        let delta: any = null;
+        if (changed) {
+          delta = oldHash ? diffRows(oldRows, fresh.rows) : null;
+          const payload = { rows: fresh.rows, total: fresh.total, page, pageSize, changed: true };
+          await db("live_cache_pages?on_conflict=cache_key", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ cache_key: cacheKey, payload, item_count: fresh.rows.length, source_total: fresh.total, content_hash: newHash, previous_hash: oldHash || null, delta_payload: delta, source_updated_at: now, expires_at: expiresAt }) });
+        } else {
+          await db(`live_cache_pages?cache_key=eq.${encodeURIComponent(cacheKey)}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ source_updated_at: now, expires_at: expiresAt, item_count: fresh.rows.length, source_total: fresh.total }) });
+        }
         if (page === 1) await db(`live_cache_pages?expires_at=lt.${encodeURIComponent(new Date(Date.now() - 60 * 60_000).toISOString())}`, { method: "DELETE" });
         await updateConnectionHealth(conn, true);
-        return json({ ok: true, data: payload, meta: { cache: "miss", ttlMs, profileRole: profile.role } });
+        const base = { total: fresh.total, page, pageSize, sourceAt: now, hash: newHash };
+        if (knownHash && knownHash === newHash) return json({ ok: true, data: { ...base, notModified: true, changed: false }, meta: { cache: "miss", ttlMs, profileRole: profile.role } });
+        if (changed && delta && knownHash && knownHash === oldHash) return json({ ok: true, data: { ...base, delta, changed: true }, meta: { cache: "miss", ttlMs, profileRole: profile.role } });
+        return json({ ok: true, data: { ...base, rows: fresh.rows, changed }, meta: { cache: "miss", ttlMs, profileRole: profile.role } });
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        await updateConnectionHealth(conn, false, message);
-        if (c?.payload) return json({ ok: true, data: c.payload, meta: { cache: "stale", stale: true, error: message, profileRole: profile.role } });
+        const message = err instanceof Error ? err.message : String(err); await updateConnectionHealth(conn, false, message);
+        if (c?.payload) return liveResponseFromCache(c, knownHash, profile.role, "stale", true, message);
         return json({ ok: false, message }, 502);
       }
     }
 
     return json({ ok: false, message: "Not found" }, 404);
-  } catch (err) {
-    return json({ ok: false, message: err instanceof Error ? err.message : String(err) }, 500);
-  }
+  } catch (err) { return json({ ok: false, message: err instanceof Error ? err.message : String(err) }, 500); }
 });
