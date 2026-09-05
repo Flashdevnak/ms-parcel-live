@@ -24,7 +24,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Validate frontend JavaScript
-        run: node --check app.js
+        run: |
+          node --check app.js
+          node --check inspector.js
       - name: Configure Pages
         uses: actions/configure-pages@v5
         with:
