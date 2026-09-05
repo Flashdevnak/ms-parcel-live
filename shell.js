@@ -269,12 +269,29 @@ async function copySelectedSummary() {
     }
     if ($('dashboard-copy-status')) $('dashboard-copy-status').textContent = `คัดลอก ${fmt.format(rows.length)} รายการแล้ว`;
   } catch (error) {
-    if ($('dashboard-copy-status')) $('dashboard-copy-status').textContent = `คัดลอกไม่สำเร็จ`;
+    if ($('dashboard-copy-status')) $('dashboard-copy-status').textContent = 'คัดลอกไม่สำเร็จ';
   }
 }
 
+function clearDashboardOnlyFilters() {
+  let changed = false;
+  if ($('search-input') && $('search-input').value) {
+    $('search-input').value = '';
+    changed = true;
+  }
+  if ($('status-filter') && $('status-filter').value) {
+    $('status-filter').value = '';
+    changed = true;
+  }
+  if (changed) $('search-input')?.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
 function resetPageFiltersFor(page) {
-  if (page === 'dashboard' || page === 'parcels') {
+  if (page === 'dashboard') {
+    clearDashboardOnlyFilters();
+    $('bag-reset-btn')?.click();
+    document.querySelector('.smart-filter[data-risk="all"]')?.click();
+  } else if (page === 'parcels') {
     $('bag-reset-btn')?.click();
     document.querySelector('.smart-filter[data-risk="all"]')?.click();
   } else if (page === 'backlog') {
