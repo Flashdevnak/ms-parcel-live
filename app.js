@@ -1,4 +1,4 @@
-import {supabase} from './auth-client.js?v=20260906-anchored-scan-v1';
+import {supabase} from './auth-client.js?v=20260906-operational-v20';
 
 const CONFIG = {
   supabaseUrl: 'https://afhnfnfbqdqqzrghovfc.supabase.co',
@@ -16,6 +16,17 @@ const kg = (v) => {
   return Number.isFinite(n) ? `${(n / 1000).toLocaleString('th-TH', { maximumFractionDigits: 3 })} kg` : val(v);
 };
 const customerType = (r) => (r.ka_name || r.ka_id ? 'KA' : val(r.customer_type_category));
+const managerText = (r) => {
+  const full = String(r?.store_manager_display || '').trim();
+  if (full) return full;
+  const managerName = String(r?.store_manager_name || '').trim();
+  const managerPhone = String(r?.store_manager_phone || '').trim();
+  if (!managerName && !managerPhone) return '-';
+  const storeId = String(r?.store_id || '').trim();
+  const storeName = String(r?.store_name || '').trim();
+  const storeLabel = `${storeId ? `(${storeId})` : ''}${storeName}`.trim();
+  return [storeLabel, managerName, managerPhone].filter(Boolean).join(' · ') || '-';
+};
 
 const state = {
   session: null,
@@ -74,9 +85,9 @@ function formatMinutes(minutes) {
 }
 
 function rowRisk(row, now = Date.now()) {
-  const arrivedAt = parseMsTime(row.real_arrive_time);
+  const lastActionAt = parseMsTime(row.LastActionTime);
   const planAt = parseMsTime(row.plan_leave_time);
-  const ageHours = Number.isFinite(arrivedAt) && now >= arrivedAt ? (now - arrivedAt) / 3600000 : null;
+  const ageHours = Number.isFinite(lastActionAt) && now >= lastActionAt ? (now - lastActionAt) / 3600000 : null;
   const missed = Number.isFinite(planAt) && now > planAt;
   const overdueMinutes = missed ? (now - planAt) / 60000 : null;
   const dueMinutes = Number.isFinite(planAt) && planAt >= now ? (planAt - now) / 60000 : null;
@@ -123,7 +134,7 @@ function smartFilterLabel() {
 function riskText(risk) {
   const parts = [];
   if (risk.ageHours === null) parts.push('อายุไม่ทราบ');
-  else parts.push(`ค้าง ${formatMinutes(risk.ageHours * 60)}`);
+  else parts.push(`ค้างจากดำเนินการล่าสุด ${formatMinutes(risk.ageHours * 60)}`);
   if (risk.missed) parts.push(`เกินเวลาแผน ${formatMinutes(risk.overdueMinutes)}`);
   else if (risk.dueSoon) parts.push(`เหลือ ${formatMinutes(risk.dueMinutes)}`);
   return parts.join(' · ');
@@ -138,7 +149,7 @@ function riskHtml(risk) {
         ? '<span class="risk-chip risk-over48">&gt;48 ชม.</span>'
         : '<span class="risk-chip risk-unknown">อายุไม่ทราบ</span>';
   const route = risk.missed
-    ? `<span class="risk-chip risk-missed">ตกรอบ ${esc(formatMinutes(risk.overdueMinutes))}</span>`
+    ? `<span class="risk-chip risk-missed">เกินเวลาแผน ${esc(formatMinutes(risk.overdueMinutes))}</span>`
     : risk.dueSoon
       ? `<span class="risk-chip risk-soon">เหลือ ${esc(formatMinutes(risk.dueMinutes))}</span>`
       : '';
@@ -321,7 +332,7 @@ function applyDelta(delta) {
 function updateLiveDisplay(sourceAt, note = 'live') {
   renderFilters();
   renderRows();
-  window.dispatchEvent(new CustomEvent('ms-live-state',{detail:{total:state.total,count:state.rows.length,sourceAt,branchId:branchId()}}));
+  window.__MS_LIVE_ROWS=state.rows;window.dispatchEvent(new CustomEvent('ms-live-state',{detail:{total:state.total,count:state.rows.length,rows:state.rows,sourceAt,branchId:branchId()}}));
   $('last-refresh').textContent = `ตรวจ MS ล่าสุด ${new Date(sourceAt || Date.now()).toLocaleString('th-TH')} · ${note}`;
   $('source-sync').textContent = `${fmt.format(state.total)} รายการ · ${currentBranch()?.code || ''}`;
   setConnection('ok', 'ออนไลน์');
@@ -387,12 +398,35 @@ function renderBranchSelect() {
   el.innerHTML = state.branches.map((b) => `<option value="${Number(b.id)}">${esc(b.code)} · ${esc(b.name)}</option>`).join('');
   if (branchId()) el.value = String(branchId());
   $('branch-select-wrap').classList.toggle('hidden', !state.session || state.branches.length === 0);
+  window.MSPersistentSelect?.syncAll?.();
+}
+
+function ensureAdminNav() {
+  const nav = document.querySelector('.app-nav-inner');
+  if (!nav) return;
+  if (!$('nav-users-btn')) {
+    const users = document.createElement('button');
+    users.id = 'nav-users-btn'; users.type = 'button'; users.className = 'app-nav-btn admin-nav-btn hidden'; users.textContent = 'ผู้ใช้';
+    users.addEventListener('click', () => { $('users-dialog').showModal(); void loadUsers(); });
+    nav.appendChild(users);
+  }
+  if (!$('nav-branches-btn')) {
+    const branches = document.createElement('button');
+    branches.id = 'nav-branches-btn'; branches.type = 'button'; branches.className = 'app-nav-btn admin-nav-btn hidden'; branches.textContent = 'สาขา';
+    branches.addEventListener('click', () => { $('branches-dialog').showModal(); void loadBranches(); });
+    nav.appendChild(branches);
+  }
 }
 
 function updateHeaderPermissions() {
   const active = state.accessStatus === 'active';
-  $('manage-users-btn').classList.toggle('hidden', !(active && state.profileRole === 'admin'));
-  $('manage-branches-btn').classList.toggle('hidden', !(active && state.profileRole === 'admin'));
+  const admin = active && state.profileRole === 'admin';
+  ensureAdminNav();
+  $('manage-users-btn').classList.toggle('hidden', !admin);
+  $('manage-branches-btn').classList.toggle('hidden', !admin);
+  $('nav-users-btn')?.classList.toggle('hidden', !admin);
+  $('nav-branches-btn')?.classList.toggle('hidden', !admin);
+  document.querySelector('.app-nav-inner')?.classList.toggle('has-admin-actions', admin);
   $('upload-har-btn').classList.toggle('hidden', !(active && branchId() && canUploadCurrentBranch()));
   $('refresh-btn').classList.toggle('hidden', !active);
   $('logout-btn').classList.toggle('hidden', !state.session);
@@ -558,6 +592,7 @@ function fillSelect(id, values) {
   const keep = el.value;
   el.innerHTML = '<option value="">ทั้งหมด</option>' + values.map((v) => `<option>${esc(v)}</option>`).join('');
   if (values.includes(keep)) el.value = keep;
+  window.MSPersistentSelect?.syncAll?.();
 }
 
 function renderFilters() {
@@ -656,6 +691,21 @@ function renderRows() {
   }
   $('prev-btn').disabled = state.page <= 1;
   $('next-btn').disabled = state.page >= pages;
+}
+
+
+async function copyLiveTable() {
+  const now = Date.now();
+  const rows = filteredRows(now);
+  if (!rows.length) { $('last-refresh').textContent = 'ไม่มีข้อมูลในตารางสำหรับคัดลอก'; return; }
+  const cleanCell = (v) => String(v ?? '').replace(/[\t\r\n]+/g, ' ').trim();
+  const header = ['เลขพัสดุ','สถานะ','เวลาค้างจากดำเนินการล่าสุด','COD','น้ำหนัก','เวลาแผน','ถึงจริง','แบ็กกิ้ง','สาเหตุคงคลัง','ดำเนินการล่าสุด','เวลาดำเนินการล่าสุด','ผู้ดำเนินการ','ผู้จัดการสาขา','LH','FD','จังหวัด','อำเภอ','ไปรษณีย์','ประเภทลูกค้า','ลูกค้า'];
+  const lines = [header.join('\t'), ...rows.map((r) => {
+    const risk = rowRisk(r, now);
+    return [r.pno,r.state_name,risk.ageHours===null?'ไม่ทราบ':formatMinutes(risk.ageHours*60),r.cod_amount,kg(r.store_weight),r.plan_leave_time,r.real_arrive_time,r.pack_num,r.marker_category_name,r.LastAction_name,r.LastActionTime,[r.staff_info_name,r.staff_info_phone].filter(Boolean).join(' '),managerText(r),r.dst_hub_name,r.dst_store_name,r.dst_province_name,r.dst_city_name,r.dst_postal_code,customerType(r),r.ka_name].map(cleanCell).join('\t');
+  })];
+  try { await navigator.clipboard.writeText(lines.join('\n')); $('last-refresh').textContent = `คัดลอกตาราง ${fmt.format(rows.length)} รายการแล้ว`; }
+  catch (e) { $('last-refresh').textContent = `คัดลอกตารางไม่สำเร็จ: ${e.message}`; }
 }
 
 function branchOptions(selected) {
@@ -758,6 +808,13 @@ $('login-form').addEventListener('submit', async (e) => {
     $('login-error').classList.remove('hidden');
   }
 });
+
+if (!$('copy-table-btn')) {
+  const button = document.createElement('button');
+  button.id = 'copy-table-btn'; button.className = 'btn btn-header'; button.type = 'button'; button.textContent = 'คัดลอกตาราง';
+  document.querySelector('.pager-actions')?.prepend(button);
+}
+$('copy-table-btn')?.addEventListener('click', () => void copyLiveTable());
 
 $('logout-btn').addEventListener('click', () => supabase.auth.signOut());
 $('refresh-btn').addEventListener('click', () => Promise.allSettled([loadSummary(true), loadPage(true)]));

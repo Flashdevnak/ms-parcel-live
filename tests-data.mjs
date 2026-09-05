@@ -1,6 +1,6 @@
 import {strict as assert} from 'node:assert';
 import {collectSnapshot} from './supabase/functions/ms-parcel-api/scan.js';
-import {band,route,validAnalytics,rowMatch,managerValue,bags,snapshotValid,decodeSnapshotRow} from './data-model.js';
+import {band,route,validAnalytics,rowMatch,rowCell,managerValue,bags,snapshotValid,decodeSnapshotRow} from './data-model.js';
 const rows=(from,n)=>Array.from({length:n},(_,i)=>({pno:String(from+i)}));
 let calls=0;
 let hints=[];
@@ -61,6 +61,8 @@ const decodedManager=decodeSnapshotRow(['PX','คงคลัง',1000,'','','',
 assert.equal(decodedManager.store_id,'TH00000001');assert.equal(decodedManager.store_name,'01 TEST_HUB-ทดสอบ');assert.equal(decodedManager.store_manager_name,'นาย ทดสอบ ระบบ');assert.equal(decodedManager.store_manager_phone,'0812345678');assert.equal(managerValue(decodedManager),fullManager);
 assert.equal(managerValue({store_manager_display:fullManager,store_manager_phone:'0812345678'}),fullManager);
 assert.equal(managerValue({store_manager_phone:'0812345678'}),'0812345678');
+assert.equal(managerValue({store_id:'TH00000001',store_name:'01 TEST_HUB-A',store_manager_name:'นาย ทดสอบ',store_manager_phone:'0812345678'}),'(TH00000001)01 TEST_HUB-A · นาย ทดสอบ · 0812345678');
+assert.equal(rowCell({real_arrive_time:'2026-09-01 00:00:00',LastActionTime:'2026-09-06 00:00:00'},branch,Date.parse('2026-09-06T01:00:00+07:00')).b,'under3');
 assert.equal(rowMatch({store_manager_display:fullManager,store_manager_phone:'0812345678',staff_info_phone:'099'},{manager:fullManager},branch,Date.now()),true);
 assert.equal(rowMatch({store_manager_display:fullManager,store_manager_phone:'0812345678',staff_info_phone:'099'},{manager:'099'},branch,Date.now()),false);
 assert.equal(rowMatch({store_manager_display:fullManager,store_manager_phone:'0812345678'},{q:'ทดสอบ ระบบ'},branch,Date.now()),true);
