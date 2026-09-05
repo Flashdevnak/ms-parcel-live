@@ -7,80 +7,158 @@ const SNAPSHOT_MS = 30 * 60_000;
 const analyticsSupabase = createClient(SUPABASE_URL, PUBLISHABLE_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
 });
+
 let loading = false;
 let lastBranch = 0;
 let lastLoadedAt = 0;
+let retryTimer = null;
 
 async function accessToken() {
   try {
     const { data } = await analyticsSupabase.auth.getSession();
     return String(data?.session?.access_token || '');
-  } catch (_) { return ''; }
+  } catch (_) {
+    return '';
+  }
 }
-function branchId() { return Number(document.getElementById('branch-select')?.value || 0); }
-function cacheKey(id) { return `b:${id}:summary:full-analytics-v1`; }
+
+function branchId() {
+  return Number(document.getElementById('branch-select')?.value || 0);
+}
+
+function cacheKey(id) {
+  return `b:${id}:summary:full-analytics-v1`;
+}
+
+// Reuse the already-approved summary lease key. This keeps one full-snapshot leader
+// across browsers without broadening database permissions.
+function leaseKey(id) {
+  return `b:${id}:summary:transfer-summary`;
+}
+
 function headers(token, json = false) {
-  const h = { Authorization:`Bearer ${token}`, apikey:PUBLISHABLE_KEY };
+  const h = { Authorization: `Bearer ${token}`, apikey: PUBLISHABLE_KEY };
   if (json) h['Content-Type'] = 'application/json';
   return h;
 }
+
 function publish(data) {
   if (!data) return;
   window.__MS_FULL_ANALYTICS = data;
-  window.dispatchEvent(new CustomEvent('ms-full-analytics', { detail:data }));
+  window.dispatchEvent(new CustomEvent('ms-full-analytics', { detail: data }));
 }
+
+function retrySoon(ms = 1500) {
+  clearTimeout(retryTimer);
+  retryTimer = setTimeout(() => {
+    if (!document.hidden) void loadFullAnalytics(false);
+  }, ms);
+}
+
 async function readCache(id, token) {
   const select = encodeURIComponent('payload,expires_at,source_updated_at');
   const key = encodeURIComponent(cacheKey(id));
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/summary_cache?cache_key=eq.${key}&branch_id=eq.${id}&select=${select}&limit=1`, { headers:headers(token), cache:'no-store' });
+  const res = await fetch(
+    `${SUPABASE_URL}/rest/v1/summary_cache?cache_key=eq.${key}&branch_id=eq.${id}&select=${select}&limit=1`,
+    { headers: headers(token), cache: 'no-store' },
+  );
   if (!res.ok) return null;
   const rows = await res.json().catch(() => []);
   return rows?.[0] || null;
 }
+
 async function claim(id, token) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/claim_cache_refresh`, {
-    method:'POST', headers:headers(token,true),
-    body:JSON.stringify({ p_branch_id:id, p_cache_key:cacheKey(id), p_lease_seconds:15 }),
+    method: 'POST',
+    headers: headers(token, true),
+    body: JSON.stringify({
+      p_branch_id: id,
+      p_cache_key: leaseKey(id),
+      p_lease_seconds: 15,
+    }),
   });
   if (!res.ok) return false;
   return (await res.json().catch(() => false)) === true;
 }
+
 async function edgeRefresh(id, token) {
-  const res = await fetch(`${FUNCTION_BASE}/analytics?branch_id=${id}`, { headers:headers(token), cache:'no-store' });
+  const res = await fetch(`${FUNCTION_BASE}/analytics?branch_id=${id}`, {
+    headers: headers(token),
+    cache: 'no-store',
+  });
   const out = await res.json().catch(() => null);
   if (!res.ok || !out?.ok) throw new Error(out?.message || `HTTP ${res.status}`);
   return out.data;
 }
-async function loadFullAnalytics(force = false) {
+
+async function loadFullAnalytics(forceRead = false) {
   const id = branchId();
   const token = await accessToken();
-  if (!id || !token || loading) return;
-  if (!force && id === lastBranch && Date.now() - lastLoadedAt < SNAPSHOT_MS - 30_000) return;
+
+  if (!id || !token) {
+    retrySoon(1500);
+    return;
+  }
+  if (loading) return;
+
+  if (!forceRead && id === lastBranch && Date.now() - lastLoadedAt < SNAPSHOT_MS - 30_000) return;
+
   loading = true;
   try {
     const cached = await readCache(id, token);
     if (cached?.payload) publish(cached.payload);
+
     const fresh = cached && Date.parse(String(cached.expires_at || '')) > Date.now();
-    if (fresh && !force) { lastBranch=id; lastLoadedAt=Date.now(); return; }
-    const leader = await claim(id, token);
-    if (leader) {
-      const data = await edgeRefresh(id, token);
-      publish(data);
-      lastBranch=id; lastLoadedAt=Date.now();
-    } else {
-      await new Promise((r)=>setTimeout(r,1300));
-      const shared = await readCache(id, token);
-      if (shared?.payload) { publish(shared.payload); lastBranch=id; lastLoadedAt=Date.now(); }
+    if (fresh) {
+      lastBranch = id;
+      lastLoadedAt = Date.now();
+      return;
     }
+
+    const leader = await claim(id, token);
+    if (!leader) {
+      retrySoon(1800);
+      return;
+    }
+
+    const data = await edgeRefresh(id, token);
+    publish(data);
+    lastBranch = id;
+    lastLoadedAt = Date.now();
   } catch (error) {
-    window.dispatchEvent(new CustomEvent('ms-full-analytics-error',{detail:{message:String(error?.message||error)}}));
-  } finally { loading=false; }
+    window.dispatchEvent(new CustomEvent('ms-full-analytics-error', {
+      detail: { message: String(error?.message || error) },
+    }));
+    retrySoon(5000);
+  } finally {
+    loading = false;
+  }
 }
+
 function init() {
-  setTimeout(()=>void loadFullAnalytics(false),1200);
-  document.getElementById('branch-select')?.addEventListener('change',()=>{lastBranch=0;lastLoadedAt=0;window.__MS_FULL_ANALYTICS=null;setTimeout(()=>void loadFullAnalytics(false),900);});
-  document.getElementById('refresh-btn')?.addEventListener('click',()=>setTimeout(()=>void loadFullAnalytics(true),700));
-  document.addEventListener('visibilitychange',()=>{if(!document.hidden&&Date.now()-lastLoadedAt>SNAPSHOT_MS-30_000)void loadFullAnalytics(false);});
-  setInterval(()=>{if(!document.hidden)void loadFullAnalytics(false);},60_000);
+  retrySoon(800);
+
+  document.getElementById('branch-select')?.addEventListener('change', () => {
+    lastBranch = 0;
+    lastLoadedAt = 0;
+    window.__MS_FULL_ANALYTICS = null;
+    retrySoon(1000);
+  });
+
+  // Refresh reads the shared cache again, but never bypasses a still-fresh full snapshot.
+  document.getElementById('refresh-btn')?.addEventListener('click', () => {
+    lastLoadedAt = 0;
+    retrySoon(700);
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && Date.now() - lastLoadedAt > SNAPSHOT_MS - 30_000) retrySoon(300);
+  });
+
+  setInterval(() => {
+    if (!document.hidden) void loadFullAnalytics(false);
+  }, 60_000);
 }
-if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});else init();
+
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, { once: true });
+else init();
