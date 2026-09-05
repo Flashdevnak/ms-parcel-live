@@ -65,8 +65,9 @@ Deno.serve(async(req)=>{
       if(existing?.[0])await db(`ms_connection?id=eq.${existing[0].id}`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify(patch)});
       else await db('ms_connection',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify(patch)});
       await db(`branches?id=eq.${branchId}`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify({store_id:found.queryTemplate.store_id||null,updated_at:new Date().toISOString()})});
-      await db(`live_cache_pages?branch_id=eq.${branchId}`,{method:'DELETE'});await db(`summary_cache?branch_id=eq.${branchId}`,{method:'DELETE'});await db(`cache_refresh_leases?branch_id=eq.${branchId}`,{method:'DELETE'});
-      try{await db(`full_snapshot_pages?branch_id=eq.${branchId}`,{method:'DELETE'});}catch{}
+      await db(`live_cache_pages?branch_id=eq.${branchId}`,{method:'DELETE'});
+      await db(`summary_cache?branch_id=eq.${branchId}`,{method:'DELETE'});
+      await db(`cache_refresh_leases?branch_id=eq.${branchId}`,{method:'DELETE'});
       return json({ok:true,data:{branchId,storeId:found.queryTemplate.store_id}});
     }
 
