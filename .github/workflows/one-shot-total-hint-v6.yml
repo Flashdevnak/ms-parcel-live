@@ -1,0 +1,89 @@
+name: One-shot total-hint v6 finalizer
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one-shot-total-hint-v6.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply FBI pager contract and analytics v6
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p=Path('supabase/functions/ms-parcel-api/ms.ts')
+          s=p.read_text(encoding='utf-8')
+          old="export async function fetchLivePage(conn:any,page:number,pageSize:number){const url=new URL(conn.endpoint_path,conn.fbi_base_url);applyBase(url,conn);url.searchParams.set('page',String(page));url.searchParams.set('page_size',String(pageSize));const obj=await fetchJson(url,conn);return{rows:(Array.isArray(obj?.data?.list)?obj.data.list:[]).map(slimRow),total:Number(obj?.data?.total||0)};}"
+          new="export async function fetchLivePage(conn:any,page:number,pageSize:number,totalHint?:number){const url=new URL(conn.endpoint_path,conn.fbi_base_url);applyBase(url,conn);url.searchParams.set('page',String(page));url.searchParams.set('page_size',String(pageSize));if(Number.isFinite(totalHint))url.searchParams.set('total',String(Math.max(0,Math.trunc(Number(totalHint)))));const obj=await fetchJson(url,conn);return{rows:(Array.isArray(obj?.data?.list)?obj.data.list:[]).map(slimRow),total:Number(obj?.data?.total||0)};}"
+          if old not in s: raise SystemExit('fetchLivePage source pattern not found')
+          p.write_text(s.replace(old,new),encoding='utf-8')
+
+          p=Path('supabase/functions/ms-parcel-api/analytics.ts')
+          s=p.read_text(encoding='utf-8')
+          old="collectSnapshot((p:number,size:number)=>fetchLivePage(conn,p,size),pageSize)"
+          new="collectSnapshot((p:number,size:number,totalHint:number)=>fetchLivePage(conn,p,size,totalHint),pageSize)"
+          if old not in s: raise SystemExit('analytics collector pattern not found')
+          s=s.replace(old,new).replace('schemaVersion:5','schemaVersion:6')
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('supabase/functions/ms-parcel-api/index.ts')
+          s=p.read_text(encoding='utf-8')
+          if 'schemaVersion===5' not in s: raise SystemExit('edge schema guard pattern not found')
+          p.write_text(s.replace('schemaVersion===5','schemaVersion===6'),encoding='utf-8')
+
+          p=Path('analytics-client.js')
+          s=p.read_text(encoding='utf-8')
+          if 'schemaVersion===5' not in s: raise SystemExit('client schema guard pattern not found')
+          p.write_text(s.replace('schemaVersion===5','schemaVersion===6'),encoding='utf-8')
+
+          p=Path('tests-ui.mjs')
+          s=p.read_text(encoding='utf-8')
+          if 'schemaVersion:5' not in s: raise SystemExit('UI fixture schema pattern not found')
+          p.write_text(s.replace('schemaVersion:5','schemaVersion:6'),encoding='utf-8')
+
+          oldver='20260906-adaptive-scan-v1'
+          newver='20260906-total-hint-v1'
+          for name in ['index.html','app.js','ops.js','analytics-client.js','snapshot-client.js']:
+              p=Path(name)
+              s=p.read_text(encoding='utf-8')
+              if oldver in s:
+                  p.write_text(s.replace(oldver,newver),encoding='utf-8')
+          PY
+      - name: Validate frontend and data model
+        run: |
+          node --check app.js
+          node --check inspector.js
+          node --check analytics-client.js
+          node --check snapshot-client.js
+          node --check ops.js
+          node --check shell.js
+          node --check data-model.js
+          node --check auth-client.js
+          node tests-data.mjs
+      - name: Validate all six workspace views
+        run: |
+          npm install --prefix /tmp/ms-parcel-ui-test --no-package-lock --no-save jsdom@26.1.0
+          NODE_PATH=/tmp/ms-parcel-ui-test/node_modules node tests-ui.mjs
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Validate Edge
+        run: deno check supabase/functions/ms-parcel-api/index.ts
+      - name: Commit validated v6 source and assets
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add supabase/functions/ms-parcel-api/ms.ts supabase/functions/ms-parcel-api/analytics.ts supabase/functions/ms-parcel-api/index.ts analytics-client.js tests-ui.mjs index.html app.js ops.js snapshot-client.js
+          git commit -m 'fix: use FBI total hint for stable full snapshots'
+          git push
