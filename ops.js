@@ -1,7 +1,5 @@
 const $ = (id) => document.getElementById(id);
 const fmt = new Intl.NumberFormat('th-TH');
-
-const OPS_PAGES = ['status', 'weight'];
 let cachedRows = [];
 let cacheSourceBranch = '';
 let scheduled = false;
@@ -44,21 +42,19 @@ function ageBand(arrived, now = Date.now()) {
 function text(el) { return String(el?.textContent ?? '').trim(); }
 
 function parseWeightKg(value) {
-  const raw = String(value ?? '').replace(/,/g, '').trim();
-  const n = Number.parseFloat(raw);
+  const n = Number.parseFloat(String(value ?? '').replace(/,/g, '').trim());
   return Number.isFinite(n) ? n : 0;
 }
 
 function parseTableRows() {
   return [...document.querySelectorAll('#table-body tr')].map((tr) => {
     const c = tr.cells;
-    const weightText = text(c[3]?.querySelector('.cell-stack > small'));
     return {
       pno: text(c[0]),
       parcelState: text(c[1]),
       plan: text(c[4]?.querySelector('.cell-stack > span')),
       arrived: text(c[4]?.querySelector('.cell-stack > small')),
-      bag: text(c[5]) === '-' || text(c[5]) === '--' ? '' : text(c[5]),
+      bag: ['-', '--'].includes(text(c[5])) ? '' : text(c[5]),
       latestAction: text(c[7]?.querySelector('.cell-stack > span')) || '-',
       latestTime: text(c[7]?.querySelector('.cell-stack > small')) || '-',
       operatorName: text(c[8]?.querySelector('.cell-stack > span')) || '-',
@@ -67,21 +63,19 @@ function parseTableRows() {
       branchRaw: text(c[9]?.querySelector('.cell-stack > small')),
       hub: cleanDestination(text(c[9]?.querySelector('.cell-stack > span'))) || '-',
       branch: cleanDestination(text(c[9]?.querySelector('.cell-stack > small'))) || '-',
-      weightKg: parseWeightKg(weightText),
+      weightKg: parseWeightKg(text(c[3]?.querySelector('.cell-stack > small'))),
     };
   }).filter((r) => r.pno);
 }
 
 function sourceBranchKey() {
-  return String($('branch-select')?.value || '') + '|' + text($('branch-select')?.selectedOptions?.[0]);
+  return `${String($('branch-select')?.value || '')}|${text($('branch-select')?.selectedOptions?.[0])}`;
 }
 
 function sourceAliases() {
   const label = text($('branch-select')?.selectedOptions?.[0]);
   const [codePart, ...rest] = label.split('·');
-  const code = String(codePart || '').trim().toUpperCase();
-  const name = String(rest.join('·') || '').trim();
-  return { code, name };
+  return { code: String(codePart || '').trim().toUpperCase(), name: String(rest.join('·') || '').trim() };
 }
 
 function normalizeName(value) {
@@ -92,9 +86,7 @@ function isOwnHub(value) {
   const raw = cleanDestination(value);
   if (!raw) return false;
   const { code, name } = sourceAliases();
-  const dest = normalizeName(raw);
-  const own = normalizeName(name);
-  if (own && dest === own) return true;
+  if (name && normalizeName(raw) === normalizeName(name)) return true;
   if (!code) return false;
   const escaped = code.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return new RegExp(`(^|[^A-Z0-9])${escaped}(?:_HUB)?([^A-Z0-9]|$)`, 'i').test(raw.toUpperCase());
@@ -142,15 +134,24 @@ function unique(values) {
 }
 
 function setSelectOptions(select, values, keep, labelFn = cleanDestination) {
-  if (!select) return;
-  select.innerHTML = '<option value="">ทั้งหมด</option>' + values.map((v) => `<option value="${esc(v)}">${esc(labelFn(v) || v)}</option>`).join('');
-  if (values.includes(keep)) select.value = keep;
-  else select.value = '';
+  if (!select) return false;
+  const desired = [['', 'ทั้งหมด'], ...values.map((v) => [v, labelFn(v) || v])];
+  const current = [...select.options].map((o) => [o.value, text(o)]);
+  const optionsChanged = JSON.stringify(current) !== JSON.stringify(desired);
+  if (optionsChanged) {
+    select.innerHTML = desired.map(([value, label]) => `<option value="${esc(value)}">${esc(label)}</option>`).join('');
+  }
+  const nextValue = values.includes(keep) ? keep : '';
+  const valueChanged = select.value !== nextValue;
+  select.value = nextValue;
+  return optionsChanged || valueChanged;
 }
 
 function rebuildDestinationFilters() {
   if (rebuilding) return;
   rebuilding = true;
+  let resetHub = false;
+  let resetBranch = false;
   try {
     const rows = updateCache();
     const hubSelect = $('hub-filter');
@@ -162,17 +163,21 @@ function rebuildDestinationFilters() {
 
     const hubs = unique(rows.map((r) => r.hubRaw).filter((v) => !isOwnHub(v)));
     setSelectOptions(hubSelect, hubs, keepHub);
+    resetHub = !!keepHub && !hubs.includes(keepHub);
+
     const selectedHub = String(hubSelect?.value || '');
     const branchRows = selectedHub ? rows.filter((r) => r.hubRaw === selectedHub) : rows;
     const branches = unique(branchRows.map((r) => r.branchRaw));
     setSelectOptions(branchSelect, branches, keepBranch);
+    resetBranch = !!keepBranch && !branches.includes(keepBranch);
 
     const filteredForActions = globalRows({ ignoreAction: true });
-    const actions = unique(filteredForActions.map((r) => r.latestAction));
-    setSelectOptions(actionSelect, actions, keepAction, (v) => v);
+    setSelectOptions(actionSelect, unique(filteredForActions.map((r) => r.latestAction)), keepAction, (v) => v);
   } finally {
     rebuilding = false;
   }
+  if (resetHub) $('hub-filter')?.dispatchEvent(new Event('change', { bubbles: true }));
+  else if (resetBranch) $('branch-filter')?.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
 function countBy(rows, getter) {
@@ -230,12 +235,8 @@ function bagRows() {
   let rows = globalRows().filter((r) => r.bag);
   const bagSearch = String($('bag-search')?.value || '').trim().toLowerCase();
   const action = String($('bag-action-filter')?.value || '');
-  const hub = String($('bag-hub-filter')?.value || '');
-  const branch = String($('bag-branch-filter')?.value || '');
   if (bagSearch) rows = rows.filter((r) => r.bag.toLowerCase().includes(bagSearch));
   if (action) rows = rows.filter((r) => r.latestAction === action);
-  if (hub) rows = rows.filter((r) => r.hubRaw === hub || r.hub === cleanDestination(hub));
-  if (branch) rows = rows.filter((r) => r.branchRaw === branch || r.branch === cleanDestination(branch));
   return rows;
 }
 
@@ -272,7 +273,7 @@ function pageSection(name, title, body) {
 function ensureStructure() {
   const css = document.createElement('link');
   css.rel = 'stylesheet';
-  css.href = 'ops.css?v=20260905-1';
+  css.href = 'ops.css?v=20260905-2';
   document.head.appendChild(css);
 
   const nav = document.querySelector('.app-nav-inner');
@@ -292,15 +293,15 @@ function ensureStructure() {
   const bagging = document.querySelector('[data-page-view="bagging"]');
   if (main && backlog && !document.querySelector('[data-page-view="status"]')) {
     const status = pageSection('status', 'สถานะพัสดุ', `
-      <div class="ops-metric-grid"><article><span>รายการ</span><strong id="ops-status-total">0</strong></article><article><span>สถานะล่าสุด</span><strong id="ops-status-types">0</strong></article></div>
-      <section class="panel ops-panel"><h3>การดำเนินการล่าสุด</h3><div class="ops-table-scroll compact"><table class="ops-table"><thead><tr><th>การดำเนินการล่าสุด</th><th>จำนวน</th><th>สัดส่วน</th><th>เวลาล่าสุด</th></tr></thead><tbody id="ops-status-table"></tbody></table></div></section>
+      <div class="ops-metric-grid"><article><span>รายการ</span><strong id="ops-status-total">0</strong></article><article><span>การดำเนินการล่าสุด</span><strong id="ops-status-types">0</strong></article></div>
+      <section class="panel ops-panel"><h3>สรุปการดำเนินการล่าสุด</h3><div class="ops-table-scroll compact"><table class="ops-table"><thead><tr><th>การดำเนินการล่าสุด</th><th>จำนวน</th><th>สัดส่วน</th><th>เวลาล่าสุด</th></tr></thead><tbody id="ops-status-table"></tbody></table></div></section>
       <section class="panel ops-panel"><h3>รายการพัสดุ</h3><div class="ops-table-scroll"><table class="ops-table"><thead><tr><th>เลขพัสดุ</th><th>การดำเนินการล่าสุด</th><th>เวลา</th><th>เบอร์ผู้ดำเนินการ</th><th>LH ปลายทาง</th><th>FD ปลายทาง</th></tr></thead><tbody id="ops-status-detail"></tbody></table></div></section>`);
     main.insertBefore(status, backlog);
   }
   if (main && bagging && !document.querySelector('[data-page-view="weight"]')) {
     const weight = pageSection('weight', 'น้ำหนักสาขา', `
       <div class="ops-metric-grid four"><article><span>พัสดุ</span><strong id="ops-weight-parcels">0</strong></article><article><span>น้ำหนักรวม</span><strong id="ops-weight-total">0 kg</strong></article><article><span>เฉลี่ย/ชิ้น</span><strong id="ops-weight-avg">0 kg</strong></article><article><span>FD ปลายทาง</span><strong id="ops-weight-branches">0</strong></article></div>
-      <section class="panel ops-panel"><div class="ops-table-scroll"><table class="ops-table"><thead><tr><th>FD ปลายทาง</th><th>LH ปลายทาง</th><th>เลขพัสดุ (จำนวน)</th><th>น้ำหนักรวม kg</th><th>เฉลี่ย kg</th></tr></thead><tbody id="ops-weight-table"></tbody></table></div></section>`);
+      <section class="panel ops-panel"><div class="ops-table-scroll"><table class="ops-table"><thead><tr><th>FD ปลายทาง</th><th>LH ปลายทาง</th><th>จำนวนพัสดุ</th><th>น้ำหนักรวม kg</th><th>เฉลี่ย kg</th></tr></thead><tbody id="ops-weight-table"></tbody></table></div></section>`);
     main.insertBefore(weight, bagging);
   }
 
@@ -312,6 +313,8 @@ function ensureStructure() {
   }
   const hubSpan = $('hub-filter')?.closest('label')?.querySelector('span'); if (hubSpan) hubSpan.textContent = 'LH ปลายทาง';
   const branchSpan = $('branch-filter')?.closest('label')?.querySelector('span'); if (branchSpan) branchSpan.textContent = 'FD ปลายทาง';
+
+  for (const id of ['bag-action-filter', 'bag-hub-filter', 'bag-branch-filter']) $(id)?.closest('label')?.classList.add('hidden');
 
   if (bagging && !$('ops-bag-detail')) {
     const detail = document.createElement('section');
@@ -326,10 +329,6 @@ ensureStructure();
 document.addEventListener('DOMContentLoaded', () => {
   const tbody = $('table-body');
   if (tbody) new MutationObserver(scheduleRender).observe(tbody, { childList: true });
-  const hub = $('hub-filter');
-  const branch = $('branch-filter');
-  if (hub) new MutationObserver(scheduleRender).observe(hub, { childList: true });
-  if (branch) new MutationObserver(scheduleRender).observe(branch, { childList: true });
 
   for (const id of ['hub-filter', 'branch-filter', 'ops-action-filter', 'bag-action-filter', 'bag-hub-filter', 'bag-branch-filter', 'bag-issue-filter', 'bag-mode']) {
     $(id)?.addEventListener('change', () => {
