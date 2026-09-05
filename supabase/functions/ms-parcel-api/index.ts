@@ -86,10 +86,10 @@ Deno.serve(async(req)=>{
 
     if(req.method==='GET'&&route==='analytics'){
       const cacheKey=`b:${branchId}:summary:full-analytics-v1`,cached=await db(`summary_cache?cache_key=eq.${encodeURIComponent(cacheKey)}&select=*&limit=1`),c=cached?.[0];
-      if(c?.payload?.schemaVersion===4&&new Date(c.expires_at).getTime()>Date.now())return json({ok:true,data:c.payload,meta:{cache:'hit',expiresAt:c.expires_at,ttlMs:Math.max(0,new Date(c.expires_at).getTime()-Date.now()),branchId}});
+      if(c?.payload?.schemaVersion===5&&new Date(c.expires_at).getTime()>Date.now())return json({ok:true,data:c.payload,meta:{cache:'hit',expiresAt:c.expires_at,ttlMs:Math.max(0,new Date(c.expires_at).getTime()-Date.now()),branchId}});
       const conn=await getConnection(branchId);
       try{
-        const analytics=await buildFullAnalytics(conn,branch,5000),sourceAt=new Date().toISOString(),ttlMs=analytics.complete?30*60_000:5*60_000,expiresAt=new Date(Date.now()+ttlMs).toISOString(),payload={...analytics,sourceAt,branchId},hash=await hashSummary(payload);
+        const analytics=await buildFullAnalytics(conn,branch,10000),sourceAt=new Date().toISOString(),ttlMs=analytics.complete?30*60_000:5*60_000,expiresAt=new Date(Date.now()+ttlMs).toISOString(),payload={...analytics,sourceAt,branchId},hash=await hashSummary(payload);
         await db('summary_cache?on_conflict=cache_key',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({cache_key:cacheKey,branch_id:branchId,payload,content_hash:hash,source_updated_at:sourceAt,expires_at:expiresAt})});
         await updateConnectionHealth(conn,true);
         return json({ok:true,data:payload,meta:{cache:'miss',ttlMs,branchId}});
