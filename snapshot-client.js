@@ -2,7 +2,15 @@ import {supabase as client} from './auth-client.js?v=20260906-workspace-2';
 import {snapshotValid} from './data-model.js?v=20260906-workspace-2';
 let rows=[],loadedId='',pending=null,generation=0,loaded=false;
 const id=()=>Number(document.getElementById('branch-select')?.value||0);
-const decode=r=>Object.fromEntries(['pno','state_name','store_weight','plan_leave_time','real_arrive_time','pack_num','LastAction_name','LastActionTime','staff_info_phone','store_manager_phone','dst_hub_name','dst_store_name'].map((k,i)=>[k,r[i]??'']));
+function decode(r){
+ const keys=['pno','state_name','store_weight','plan_leave_time','real_arrive_time','pack_num','LastAction_name','LastActionTime','staff_info_phone'];
+ const out=Object.fromEntries(keys.map((k,i)=>[k,r[i]??'']));
+ const manager=String(r?.[9]??'').trim();
+ out.store_manager_display=manager;
+ out.store_manager_phone=manager.includes(' · ')?manager.split(' · ').at(-1).trim():manager;
+ out.dst_hub_name=r?.[10]??'';out.dst_store_name=r?.[11]??'';
+ return out;
+}
 function reset(){generation++;rows=[];loadedId='';loaded=false;pending=null;window.__MS_FULL_ROWS=[];window.dispatchEvent(new CustomEvent('ms-full-rows-reset'));}
 async function ensureLoaded(){
  const a=window.__MS_FULL_ANALYTICS,branch=id(),seq=generation;
