@@ -1,6 +1,10 @@
 name: Activate Supabase v13
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/supabase-v13.yml'
   workflow_dispatch:
 
 permissions:
@@ -14,6 +18,8 @@ jobs:
       SUPABASE_ACCESS_TOKEN_A: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_ACCESS_TOKEN_B: ${{ secrets.SUPABASE_TOKEN }}
       SUPABASE_ACCESS_TOKEN_C: ${{ secrets.SUPABASE_PAT }}
+      SUPABASE_ACCESS_TOKEN_D: ${{ vars.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_ACCESS_TOKEN_E: ${{ vars.SUPABASE_TOKEN }}
       PROJECT_REF: afhnfnfbqdqqzrghovfc
     steps:
       - name: Checkout
@@ -23,14 +29,16 @@ jobs:
         shell: bash
         run: |
           TOKEN="$SUPABASE_ACCESS_TOKEN_A"
-          SOURCE='SUPABASE_ACCESS_TOKEN'
-          if [ -z "$TOKEN" ] && [ -n "$SUPABASE_ACCESS_TOKEN_B" ]; then TOKEN="$SUPABASE_ACCESS_TOKEN_B"; SOURCE='SUPABASE_TOKEN'; fi
-          if [ -z "$TOKEN" ] && [ -n "$SUPABASE_ACCESS_TOKEN_C" ]; then TOKEN="$SUPABASE_ACCESS_TOKEN_C"; SOURCE='SUPABASE_PAT'; fi
+          SOURCE='secret:SUPABASE_ACCESS_TOKEN'
+          if [ -z "$TOKEN" ] && [ -n "$SUPABASE_ACCESS_TOKEN_B" ]; then TOKEN="$SUPABASE_ACCESS_TOKEN_B"; SOURCE='secret:SUPABASE_TOKEN'; fi
+          if [ -z "$TOKEN" ] && [ -n "$SUPABASE_ACCESS_TOKEN_C" ]; then TOKEN="$SUPABASE_ACCESS_TOKEN_C"; SOURCE='secret:SUPABASE_PAT'; fi
+          if [ -z "$TOKEN" ] && [ -n "$SUPABASE_ACCESS_TOKEN_D" ]; then TOKEN="$SUPABASE_ACCESS_TOKEN_D"; SOURCE='var:SUPABASE_ACCESS_TOKEN'; fi
+          if [ -z "$TOKEN" ] && [ -n "$SUPABASE_ACCESS_TOKEN_E" ]; then TOKEN="$SUPABASE_ACCESS_TOKEN_E"; SOURCE='var:SUPABASE_TOKEN'; fi
           if [ -z "$TOKEN" ]; then
-            echo 'No supported Supabase management token secret is configured.'
+            echo 'No supported Supabase management token is configured.'
             exit 2
           fi
-          echo "Using configured secret alias: $SOURCE"
+          echo "Using configured token source: $SOURCE"
           echo "SUPABASE_ACCESS_TOKEN=$TOKEN" >> "$GITHUB_ENV"
 
       - name: Apply v13 migration
