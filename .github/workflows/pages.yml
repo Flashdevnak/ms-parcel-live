@@ -31,6 +31,12 @@ jobs:
           node --check snapshot-client.js
           node --check ops.js
           node --check shell.js
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Validate Edge TypeScript
+        run: deno check supabase/functions/ms-parcel-api/index.ts
       - name: Configure Pages
         uses: actions/configure-pages@v5
         with:
