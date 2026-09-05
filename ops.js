@@ -1,6 +1,6 @@
-import {BANDS,LABELS,clean,time,band,route,hasBag,validAnalytics,match,rowMatch,metrics,groups,bags,riskMatch,managerValue} from './data-model.js?v=20260906-operational-v20';
-import './snapshot-client.js?v=20260906-operational-v20';
-import './analytics-client.js?v=20260906-operational-v20';
+import {BANDS,LABELS,clean,time,band,route,hasBag,validAnalytics,match,rowMatch,metrics,groups,bags,riskMatch,managerValue} from './data-model.js?v=20260906-operational-v21';
+import './snapshot-client.js?v=20260906-operational-v21';
+import './analytics-client.js?v=20260906-operational-v21';
 const $=id=>document.getElementById(id),num=n=>Number(n).toLocaleString('th-TH'),kg=n=>Number(n).toLocaleString('th-TH',{maximumFractionDigits:2});
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const names={dashboard:'ภาพรวมงาน',parcels:'พัสดุคงคลัง',status:'สถานะพัสดุ',backlog:'SLA & Backlog',weight:'น้ำหนักปลายทาง',bagging:'ตรวจแบ็กกิ้ง'};
