@@ -26,6 +26,12 @@ function text(el) {
   return String(el?.textContent ?? '').trim();
 }
 
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>'"]/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
+  }[c]));
+}
+
 function cleanDestination(value) {
   const raw = String(value ?? '').trim();
   if (!raw) return '';
@@ -55,21 +61,6 @@ function ageBand(ageHours) {
   if (ageHours < 24) return '22to24';
   if (ageHours <= 48) return '24to48';
   return 'over48';
-}
-
-function ageLabel(band) {
-  return ({
-    under3: '<3 ชม.',
-    '3to6': '3–6 ชม.',
-    '6to9': '6–9 ชม.',
-    '9to12': '9–12 ชม.',
-    '12to16': '12–16 ชม.',
-    '16to22': '16–22 ชม.',
-    '22to24': '22–24 ชม.',
-    '24to48': '24–48 ชม.',
-    over48: '>48 ชม.',
-    unknown: 'อายุไม่ทราบ',
-  })[band] || 'ทั้งหมด';
 }
 
 function durationText(hours) {
@@ -165,10 +156,7 @@ function buildBagGroups(rows) {
 function setOptions(select, values, current, allLabel = 'ทั้งหมด') {
   if (!select) return;
   const uniq = [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b, 'th'));
-  select.innerHTML = `<option value="">${allLabel}</option>` + uniq.map((v) => {
-    const safe = v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
-    return `<option value="${safe}">${safe}</option>`;
-  }).join('');
+  select.innerHTML = `<option value="">${escapeHtml(allLabel)}</option>` + uniq.map((v) => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
   if (uniq.includes(current)) select.value = current;
 }
 
@@ -249,7 +237,7 @@ function renderBaggingInspector(rows, bagGroups) {
       if (g.mixedState) flags.push('สถานะปน');
       if (g.planOverdue) flags.push('เกินเวลาแผน');
       if (g.stale6h) flags.push('ไม่อัปเดต >6ชม.');
-      return `<button type="button" class="bag-alert-item" data-pack="${g.pack.replace(/"/g, '&quot;')}"><strong>${g.pack}</strong><span>${fmt.format(g.items.length)} ชิ้น · ${flags.join(' · ')}</span></button>`;
+      return `<button type="button" class="bag-alert-item" data-pack="${escapeHtml(g.pack)}"><strong>${escapeHtml(g.pack)}</strong><span>${fmt.format(g.items.length)} ชิ้น · ${escapeHtml(flags.join(' · '))}</span></button>`;
     }).join('') : '<div class="bag-ok">ยังไม่พบแบ็กกิ้งผิดปกติในหน้าปัจจุบัน</div>';
   }
 
@@ -391,8 +379,8 @@ function copyVisibleRiskRowsCapture(event) {
 function bindEvents() {
   document.querySelectorAll('.smart-subfilter').forEach((button) => {
     button.addEventListener('click', () => {
-      inspectorState.ageBand = button.dataset.age || 'all';
       resetOldSmartFilter();
+      inspectorState.ageBand = button.dataset.age || 'all';
       applyInspector();
     });
   });
