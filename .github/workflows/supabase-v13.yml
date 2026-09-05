@@ -37,29 +37,6 @@ jobs:
           echo "Using configured token source: $SOURCE"
           echo "SUPABASE_ACCESS_TOKEN=$TOKEN" >> "$GITHUB_ENV"
 
-      - name: Apply v13 migration
-        shell: bash
-        run: |
-          python - <<'PY' > /tmp/query.json
-          import json
-          from pathlib import Path
-          sql = Path('supabase/migrations/20260906_v13_full_snapshot_pages.sql').read_text()
-          print(json.dumps({'query': sql}))
-          PY
-          curl --fail-with-body --silent --show-error \
-            -X POST "https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query" \
-            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
-            -H 'Content-Type: application/json' \
-            --data-binary @/tmp/query.json > /tmp/migration-result.json
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          data=json.loads(Path('/tmp/migration-result.json').read_text() or '{}')
-          print('Migration API completed.')
-          if isinstance(data, dict) and data.get('error'):
-              raise SystemExit(str(data['error']))
-          PY
-
       - name: Deploy Edge v13
         shell: bash
         run: |
@@ -69,4 +46,4 @@ jobs:
             --use-api
 
       - name: Backend activation complete
-        run: echo 'v13 migration and Edge deployment completed.'
+        run: echo 'v13 Edge deployment completed; no database migration is required.'
