@@ -28,6 +28,7 @@ jobs:
           node --check app.js
           node --check inspector.js
           node --check analytics-client.js
+          node --check snapshot-client.js
           node --check ops.js
           node --check shell.js
       - name: Configure Pages
