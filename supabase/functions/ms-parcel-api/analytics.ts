@@ -4,6 +4,7 @@ import { fetchLivePage } from './ms.ts';
 const DEFAULT_PAGE_SIZE = 5000;
 const MAX_PAGES = 30;
 const SNAPSHOT_TTL_MS = 30 * 60_000;
+const SNAPSHOT_WRITE_BATCH = 3;
 const BANDS = ['under3','3to6','6to9','9to12','12to16','16to22','22to24','24to48','over48','unknown'];
 
 function cleanName(value:unknown){const raw=String(value??'').trim();if(!raw)return'';return raw.replace(/^\s*(?:(?:\([^)]*\)|（[^）]*）)\s*)+/,'').trim()||raw;}
@@ -24,11 +25,25 @@ function snapshotRow(r:any){return[
 
 async function persistSnapshot(branchId:number,snapshotId:string,pages:any[],sourceTotal:number,sourceAt:string,expiresAt:string){
   try{
-    const records=pages.map((rows,index)=>({branch_id:branchId,snapshot_id:snapshotId,page_no:index+1,payload:rows,item_count:rows.length,source_total:sourceTotal,source_updated_at:sourceAt,expires_at:expiresAt}));
-    await db('full_snapshot_pages',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify(records)});
+    for(let start=0;start<pages.length;start+=SNAPSHOT_WRITE_BATCH){
+      const records=pages.slice(start,start+SNAPSHOT_WRITE_BATCH).map((rows,offset)=>({
+        branch_id:branchId,
+        snapshot_id:snapshotId,
+        page_no:start+offset+1,
+        payload:rows,
+        item_count:rows.length,
+        source_total:sourceTotal,
+        source_updated_at:sourceAt,
+        expires_at:expiresAt,
+      }));
+      await db('full_snapshot_pages',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify(records)});
+    }
     await db(`full_snapshot_pages?branch_id=eq.${branchId}&snapshot_id=neq.${encodeURIComponent(snapshotId)}`,{method:'DELETE'});
     return true;
-  }catch{return false;}
+  }catch{
+    try{await db(`full_snapshot_pages?branch_id=eq.${branchId}&snapshot_id=eq.${encodeURIComponent(snapshotId)}`,{method:'DELETE'});}catch{}
+    return false;
+  }
 }
 
 export async function buildFullAnalytics(conn:any,branch:any,requestedPageSize=DEFAULT_PAGE_SIZE){
@@ -62,7 +77,7 @@ export async function buildFullAnalytics(conn:any,branch:any,requestedPageSize=D
   const complete=scanned>=total;
   const snapshotAvailable=complete&&branchId>0?await persistSnapshot(branchId,snapshotId,snapshotPages,total,sourceAt,expiresAt):false;
   return{
-    complete,total,scanned,sourcePageSize:pageSize,pages,snapshotId:snapshotAvailable?snapshotId:null,snapshotPages:snapshotAvailable?pages:0,snapshotExpiresAt:snapshotAvailable?expiresAt:null,
+    complete,total,scanned,sourcePageSize:effectivePageSize,requestedPageSize:pageSize,pages,snapshotId:snapshotAvailable?snapshotId:null,snapshotPages:snapshotAvailable?pages:0,snapshotExpiresAt:snapshotAvailable?expiresAt:null,
     totalWeightKg:Math.round(totalWeightKg*1000)/1000,avgWeightKg:scanned?Math.round((totalWeightKg/scanned)*1000)/1000:0,baggedParcels,uniqueBags:bags.size,overdueTotal,criticalTotal,bandTotals,
     fd:sortedGroups(fd),lh:sortedGroups(lh),actions:sortedCounts(actions),parcelStates:sortedCounts(parcelStates),managerPhones:sortedCounts(managerPhones),cells:[...cells.values()].map((x)=>({...x,w:Math.round(x.w*1000)/1000})),updatedAt:sourceAt
   };
