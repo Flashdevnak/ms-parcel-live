@@ -1,0 +1,254 @@
+name: One-shot manager exact column multiselect v22
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one-shot-manager-multiselect-v22.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Replace dropdown engine with persistent checkbox multiselect
+        shell: bash
+        run: |
+          cat > dropdowns.js <<'EOF'
+          (()=>{
+            const registry=new Map();
+            let opened=null,openKey='';
+            const keyOf=(select)=>select.id?`id:${select.id}`:select.name?`name:${select.name}`:'';
+            const clamp=(n,min,max)=>Math.max(min,Math.min(max,n));
+            const isMulti=(select)=>!!(select?.multiple||select?.dataset?.multiSelect==='1');
+            const chosen=(select)=>[...select.options].filter(o=>o.value!==''&&o.selected);
+            function close(root,{clearKey=true}={}){
+              if(!root)return;
+              root.classList.remove('open');
+              root.querySelector('.persistent-select-trigger')?.setAttribute('aria-expanded','false');
+              if(opened===root)opened=null;
+              if(clearKey)openKey='';
+            }
+            function position(root){
+              if(!root?.isConnected||!root.classList.contains('open'))return;
+              const trigger=root.querySelector('.persistent-select-trigger'),panel=root.querySelector('.persistent-select-panel');
+              if(!trigger||!panel)return;
+              const r=trigger.getBoundingClientRect(),vw=Math.max(document.documentElement.clientWidth||0,window.innerWidth||0),vh=Math.max(document.documentElement.clientHeight||0,window.innerHeight||0);
+              const desired=Math.min(820,Math.max(r.width,420),Math.max(280,vw-24));
+              panel.style.width=`${desired}px`;
+              panel.style.left=`${clamp(r.left,12,Math.max(12,vw-desired-12))}px`;
+              panel.style.maxHeight=`${Math.max(240,Math.min(620,vh-32))}px`;
+              const below=vh-r.bottom,above=r.top;
+              if(below>=Math.min(360,above)){panel.style.top=`${Math.min(vh-12,r.bottom+6)}px`;panel.style.bottom='auto';}
+              else{panel.style.top='auto';panel.style.bottom=`${Math.max(12,vh-r.top+6)}px`;}
+            }
+            function selectedText(select){
+              if(isMulti(select)){
+                const list=chosen(select);
+                if(!list.length)return 'ทั้งหมด';
+                if(list.length===1)return String(list[0].textContent||list[0].value);
+                return `${list.length} รายการที่เลือก`;
+              }
+              return String(select.selectedOptions?.[0]?.textContent||select.options?.[select.selectedIndex]?.textContent||'เลือก');
+            }
+            function applyChoice(select,option){
+              if(!isMulti(select)){select.value=option.value;return;}
+              const empty=[...select.options].find(o=>o.value==='');
+              if(option.value===''){
+                for(const o of select.options)o.selected=false;
+                if(empty)empty.selected=true;
+                return;
+              }
+              if(empty)empty.selected=false;
+              option.selected=!option.selected;
+              if(!chosen(select).length&&empty)empty.selected=true;
+            }
+            function sync(root,select){
+              const trigger=root.querySelector('.persistent-select-trigger'),list=root.querySelector('.persistent-select-options'),head=root.querySelector('.persistent-select-head strong');
+              if(!trigger||!list)return;
+              const multi=isMulti(select),label=selectedText(select)||'ทั้งหมด';
+              root.classList.toggle('multi',multi);
+              if(head)head.textContent=multi?'เลือกได้หลายรายการ':'เลือกข้อมูล';
+              trigger.querySelector('span').textContent=label;
+              trigger.title=label;
+              trigger.disabled=select.disabled;
+              const selected=chosen(select);
+              const frag=document.createDocumentFragment();
+              for(const option of select.options){
+                const active=multi?(option.value===''?selected.length===0:option.selected):option.value===select.value;
+                const b=document.createElement('button');
+                b.type='button';b.className='persistent-select-option';b.dataset.value=option.value;b.title=String(option.textContent||option.value);b.disabled=option.disabled;b.setAttribute('role','option');b.setAttribute('aria-selected',String(active));
+                if(multi){const check=document.createElement('input');check.type='checkbox';check.tabIndex=-1;check.checked=active;check.setAttribute('aria-hidden','true');const span=document.createElement('span');span.textContent=String(option.textContent||option.value);b.append(check,span);}else b.textContent=String(option.textContent||option.value);
+                b.addEventListener('click',(e)=>{
+                  e.preventDefault();e.stopPropagation();applyChoice(select,option);select.dispatchEvent(new Event('change',{bubbles:true}));sync(root,select);
+                  openKey=keyOf(select);
+                  queueMicrotask(()=>{
+                    const replacement=[...registry.keys()].find(s=>keyOf(s)===openKey&&s.isConnected),replacementRoot=replacement&&registry.get(replacement);
+                    if(replacementRoot){if(opened&&opened!==replacementRoot)close(opened,{clearKey:false});opened=replacementRoot;replacementRoot.classList.add('open');replacementRoot.querySelector('.persistent-select-trigger')?.setAttribute('aria-expanded','true');position(replacementRoot);}
+                  });
+                });
+                frag.appendChild(b);
+              }
+              list.replaceChildren(frag);
+              if(root.classList.contains('open'))position(root);
+            }
+            function open(root,select){if(opened&&opened!==root)close(opened,{clearKey:false});opened=root;openKey=keyOf(select);root.classList.add('open');root.querySelector('.persistent-select-trigger')?.setAttribute('aria-expanded','true');sync(root,select);position(root);}
+            function enhance(select){
+              if(!select||registry.has(select)||select.dataset.persistentSelect==='1')return;
+              select.dataset.persistentSelect='1';select.classList.add('persistent-native');
+              const root=document.createElement('div');root.className='persistent-select';root.innerHTML='<button type="button" class="persistent-select-trigger" aria-haspopup="listbox" aria-expanded="false"><span></span><i aria-hidden="true">▾</i></button><div class="persistent-select-panel" role="dialog"><div class="persistent-select-head"><strong>เลือกข้อมูล</strong><button type="button" class="persistent-select-close">ปิด</button></div><div class="persistent-select-options" role="listbox"></div></div>';
+              select.insertAdjacentElement('afterend',root);registry.set(select,root);
+              const trigger=root.querySelector('.persistent-select-trigger');trigger.addEventListener('click',(e)=>{e.preventDefault();e.stopPropagation();if(root.classList.contains('open'))close(root);else open(root,select);});
+              root.querySelector('.persistent-select-close').addEventListener('click',(e)=>{e.preventDefault();e.stopPropagation();close(root);});
+              select.addEventListener('change',()=>sync(root,select));
+              new MutationObserver(()=>sync(root,select)).observe(select,{childList:true,subtree:true,attributes:true});
+              sync(root,select);if(openKey&&keyOf(select)===openKey)queueMicrotask(()=>open(root,select));
+            }
+            function scan(scope=document){scope.querySelectorAll?.('select').forEach(enhance);}
+            function syncAll(){for(const [select,root] of registry){if(select.isConnected)sync(root,select);}}
+            function init(){scan(document);new MutationObserver((records)=>{for(const record of records)for(const node of record.addedNodes){if(node.nodeType!==1)continue;if(node.matches?.('select'))enhance(node);scan(node);}if(opened&&!opened.isConnected)opened=null;}).observe(document.body,{childList:true,subtree:true});}
+            document.addEventListener('click',(e)=>{if(opened&&!opened.contains(e.target))close(opened);});
+            document.addEventListener('keydown',(e)=>{if(e.key==='Escape'&&opened)close(opened);});
+            window.addEventListener('resize',()=>position(opened));window.addEventListener('scroll',()=>position(opened),true);window.addEventListener('ms-select-sync',syncAll);
+            window.MSPersistentSelect={init,syncAll,closeCurrent:()=>close(opened)};
+            if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});else init();
+          })();
+          EOF
+
+      - name: Apply exact source-column and multiselect patches
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def read(path): return Path(path).read_text(encoding='utf-8')
+          def write(path,text): Path(path).write_text(text,encoding='utf-8')
+          def rep(path,old,new,count=None):
+              s=read(path)
+              n=s.count(old)
+              if n==0: raise SystemExit(f'{path}: anchor not found: {old[:160]!r}')
+              if count is not None and n!=count: raise SystemExit(f'{path}: expected {count}, found {n}: {old[:160]!r}')
+              s=s.replace(old,new)
+              write(path,s)
+
+          # Preserve the manager/store column exactly as source fields, including ()/(1)/etc.
+          rep('supabase/functions/ms-parcel-api/ms.ts',
+          "function text(value:unknown){return String(value??'').trim();}\nexport function managerDisplay(r:any){\n  const managerName=text(r?.store_manager_name),managerPhone=text(r?.store_manager_phone);\n  if(!managerName&&!managerPhone)return null;\n  const storeId=text(r?.store_id),storeName=text(r?.store_name),storeLabel=`${storeId?`(${storeId})`:''}${storeName}`.trim();\n  return [storeLabel,managerName,managerPhone].filter(Boolean).join(' · ')||null;\n}",
+          "function rawText(value:unknown){return value===null||value===undefined?'':String(value);}\nexport function managerDisplay(r:any){\n  const storeId=rawText(r?.store_id),storeName=rawText(r?.store_name),managerName=rawText(r?.store_manager_name),managerPhone=rawText(r?.store_manager_phone);\n  const storeLine=`(${storeId})${storeName}`;\n  return [storeLine,managerName,managerPhone].filter((value,index)=>index===0||value!=='').join('\\n');\n}\n",1)
+
+          rep('data-model.js',
+          "export function managerValue(r){const full=String(r?.store_manager_display||'').trim();if(full)return full;const managerName=String(r?.store_manager_name||'').trim(),managerPhone=String(r?.store_manager_phone||'').trim();if(!managerName&&!managerPhone)return'-';const storeId=String(r?.store_id||'').trim(),storeName=String(r?.store_name||'').trim(),storeLabel=`${storeId?`(${storeId})`:''}${storeName}`.trim();return [storeLabel,managerName,managerPhone].filter(Boolean).join(' · ')||'-';}",
+          "export function managerValue(r){const raw=v=>v===null||v===undefined?'':String(v),obj=r||{},hasRaw=['store_id','store_name','store_manager_name','store_manager_phone'].some(k=>Object.prototype.hasOwnProperty.call(obj,k));if(hasRaw){const storeLine=`(${raw(obj.store_id)})${raw(obj.store_name)}`;return [storeLine,raw(obj.store_manager_name),raw(obj.store_manager_phone)].filter((v,i)=>i===0||v!=='').join('\\n');}const full=raw(obj.store_manager_display);return full||'()';}",1)
+          rep('data-model.js',
+          "export function match(c,f){return (!f.bands||f.bands.has(c.b))&&(!f.lh||(c.r==='lh'&&c.d===f.lh))&&(!f.fd||(c.r==='fd'&&c.d===f.fd))&&(!f.action||c.a===f.action)&&(!f.manager||c.m===f.manager);}",
+          "function pick(filter,value){if(filter instanceof Set)return filter.size===0||filter.has(value);if(Array.isArray(filter))return filter.length===0||filter.includes(value);return !filter||filter===value;}\nexport function match(c,f){return (!f.bands||f.bands.has(c.b))&&pick(f.lh,c.r==='lh'?c.d:null)&&pick(f.fd,c.r==='fd'?c.d:null)&&pick(f.action,c.a)&&pick(f.manager,c.m);}",1)
+
+          rep('supabase/functions/ms-parcel-api/analytics.ts',"function addCount(map:Map<string,number>,key:string){const name=String(key||'-').trim()||'-';map.set(name,(map.get(name)||0)+1);}","function addCount(map:Map<string,number>,key:string){const name=String(key||'-').trim()||'-';map.set(name,(map.get(name)||0)+1);}\nfunction addRawCount(map:Map<string,number>,key:unknown){const name=key===null||key===undefined?'':String(key);map.set(name,(map.get(name)||0)+1);}",1)
+          rep('supabase/functions/ms-parcel-api/analytics.ts',"manager=String(row?.store_manager_display||row?.store_manager_phone||'-').trim()||'-'","manager=String(row?.store_manager_display??'()')",1)
+          rep('supabase/functions/ms-parcel-api/analytics.ts',"addCount(managerPhones,manager)","addRawCount(managerPhones,manager)",1)
+          rep('supabase/functions/ms-parcel-api/analytics.ts','schemaVersion:9','schemaVersion:10',2)
+          rep('supabase/functions/ms-parcel-api/index.ts','schemaVersion===9','schemaVersion===10',1)
+          rep('analytics-client.js','schemaVersion===9','schemaVersion===10',1)
+
+          # Shared workspace dropdowns become checkbox multi-selects.
+          rep('ops.js',
+          "const filters=()=>({bands,lh:$('hub-filter').value,fd:$('branch-filter').value,action:$('ops-action-filter').value,manager:$('manager-phone-filter').value});",
+          "const selectedSet=id=>{const el=$(id);return new Set(el?[...el.selectedOptions].map(o=>o.value).filter(Boolean):[]);};\nconst clearMulti=id=>{const el=$(id);if(!el)return;for(const o of el.options)o.selected=o.value==='';};\nconst setOnly=(id,value)=>{const el=$(id);if(!el)return;let matched=false;for(const o of el.options){o.selected=!!value&&o.value===value;if(o.selected)matched=true;}if(!matched)for(const o of el.options)if(o.value==='')o.selected=true;};\nconst filters=()=>({bands,lh:selectedSet('hub-filter'),fd:selectedSet('branch-filter'),action:selectedSet('ops-action-filter'),manager:selectedSet('manager-phone-filter')});",1)
+          rep('ops.js',
+          "function options(el,values){const old=el.value,unique=[...new Set(values)].filter(v=>v).sort((a,b)=>a.localeCompare(b,'th'));if(old&&!unique.includes(old))unique.unshift(old);const html='<option value=\"\">ทั้งหมด</option>'+unique.map(v=>`<option value=\"${esc(v)}\">${esc(v==='-'?'ไม่ระบุ':v)}</option>`).join('');if(el.innerHTML!==html){el.innerHTML=html;el.value=old;}}",
+          "function options(el,values){const multi=!!el.multiple,old=multi?new Set([...el.selectedOptions].map(o=>o.value).filter(Boolean)):el.value,unique=[...new Set(values.map(v=>String(v)))].filter(v=>v!=='').sort((a,b)=>a.localeCompare(b,'th'));if(!multi&&old&&!unique.includes(old))unique.unshift(old);const html='<option value=\"\">ทั้งหมด</option>'+unique.map(v=>`<option value=\"${esc(v)}\">${esc(v==='-'?'ไม่ระบุ':v)}</option>`).join('');if(el.innerHTML!==html){el.innerHTML=html;if(multi){let any=false;for(const o of el.options){o.selected=o.value!==''&&old.has(o.value);any||=o.selected;}if(!any)el.options[0].selected=true;}else el.value=old;}}",1)
+          rep('ops.js',
+          "const gf=document.querySelector('.global-destination-grid');gf.querySelector('.selected-inline')?.remove();gf.insertAdjacentHTML('beforeend','<label><span>การดำเนินการล่าสุด</span><select id=\"ops-action-filter\"><option value=\"\">ทั้งหมด</option></select></label><label><span>ผู้จัดการสาขา</span><select id=\"manager-phone-filter\"><option value=\"\">ทั้งหมด</option></select></label>');",
+          "const gf=document.querySelector('.global-destination-grid');gf.querySelector('.selected-inline')?.remove();for(const id of ['hub-filter','branch-filter']){const el=$(id);el.multiple=true;el.dataset.multiSelect='1';}gf.insertAdjacentHTML('beforeend','<label><span>การดำเนินการล่าสุด</span><select id=\"ops-action-filter\" multiple data-multi-select=\"1\"><option value=\"\">ทั้งหมด</option></select></label><label><span>ผู้จัดการสาขา</span><select id=\"manager-phone-filter\" multiple data-multi-select=\"1\"><option value=\"\">ทั้งหมด</option></select></label>');",1)
+          rep('ops.js',"$('dashboard-time-clear').onclick=()=>{bands=new Set(BANDS);for(const id of ['hub-filter','branch-filter','ops-action-filter','manager-phone-filter'])$(id).value='';listMode='all';risk='all';saveFilters();};","$('dashboard-time-clear').onclick=()=>{bands=new Set(BANDS);for(const id of ['hub-filter','branch-filter','ops-action-filter','manager-phone-filter'])clearMulti(id);listMode='all';risk='all';saveFilters();};",1)
+          rep('ops.js',"for(const id of ['hub-filter','branch-filter','ops-action-filter','manager-phone-filter'])$(id).addEventListener('change',()=>{if(id==='hub-filter'&&$(id).value)$('branch-filter').value='';if(id==='branch-filter'&&$(id).value)$('hub-filter').value='';saveFilters();});","for(const id of ['hub-filter','branch-filter','ops-action-filter','manager-phone-filter'])$(id).addEventListener('change',()=>{if(id==='hub-filter'&&selectedSet(id).size)clearMulti('branch-filter');if(id==='branch-filter'&&selectedSet(id).size)clearMulti('hub-filter');saveFilters();});",1)
+          rep('ops.js',"if(d.route==='fd'){$('branch-filter').value=d.destination;$('hub-filter').value='';}else if(d.route==='lh'){$('hub-filter').value=d.destination;$('branch-filter').value='';}","if(d.route==='fd'){setOnly('branch-filter',d.destination);clearMulti('hub-filter');}else if(d.route==='lh'){setOnly('hub-filter',d.destination);clearMulti('branch-filter');}",1)
+          rep('ops.js',"$(field).value=d.value;if(d.chart==='lh')$('branch-filter').value='';if(d.chart==='fd')$('hub-filter').value='';","setOnly(field,d.value);if(d.chart==='lh')clearMulti('branch-filter');if(d.chart==='fd')clearMulti('hub-filter');",1)
+
+          # Legacy shell understands the same multi-select state and latest-action age.
+          rep('shell.js',"function filters(){return{lh:String($('hub-filter')?.value||''),fd:String($('branch-filter')?.value||''),action:String($('ops-action-filter')?.value||''),manager:String($('manager-phone-filter')?.value||'')};}","function chosenSet(id){const el=$(id);return new Set(el?[...el.selectedOptions].map(o=>o.value).filter(Boolean):[]);}\nfunction filters(){return{lh:chosenSet('hub-filter'),fd:chosenSet('branch-filter'),action:chosenSet('ops-action-filter'),manager:chosenSet('manager-phone-filter')};}",1)
+          rep('shell.js',"if(f.lh&&(c.r!=='lh'||c.d!==f.lh))return false;if(f.fd&&(c.r!=='fd'||c.d!==f.fd))return false;if(f.action&&c.a!==f.action)return false;if(f.manager&&String(c.m||'-')!==f.manager)return false;","if(f.lh.size&&(c.r!=='lh'||!f.lh.has(c.d)))return false;if(f.fd.size&&(c.r!=='fd'||!f.fd.has(c.d)))return false;if(f.action.size&&!f.action.has(c.a))return false;if(f.manager.size&&!f.manager.has(String(c.m||'-')))return false;",1)
+          rep('shell.js',"if(f.lh&&(own||hub!==f.lh))return false;if(f.fd&&(!own||fd!==f.fd))return false;if(f.action&&String(r.LastAction_name||'-')!==f.action)return false;if(f.manager&&String(r.store_manager_phone||'-')!==f.manager)return false;","if(f.lh.size&&(own||!f.lh.has(hub)))return false;if(f.fd.size&&(!own||!f.fd.has(fd)))return false;if(f.action.size&&!f.action.has(String(r.LastAction_name||'-')))return false;if(f.manager.size&&!f.manager.has(String(r.store_manager_display||r.store_manager_phone||'-')))return false;",1)
+          # Remaining shell age calculations are kept aligned with LastActionTime.
+          s=read('shell.js').replace('bandOf(r.real_arrive_time)','bandOf(r.LastActionTime)')
+          write('shell.js',s)
+
+          # Asset cache-bust.
+          for path in ['index.html','app.js','ops.js','analytics-client.js','snapshot-client.js']:
+              s=read(path).replace('20260906-operational-v21','20260906-manager-multi-v22')
+              write(path,s)
+
+          # Checkbox + multiline exact-value styling.
+          css=read('dropdown-fix.css')
+          extra="""
+          .persistent-select.multi .persistent-select-option{display:grid;grid-template-columns:24px minmax(0,1fr);align-items:start;gap:9px}
+          .persistent-select-option input[type=checkbox]{width:18px;height:18px;margin:2px 0 0;pointer-events:none;accent-color:#17375e}
+          .persistent-select-option span,.persistent-select-trigger>span,.work-bar>span{white-space:pre-line!important}
+          .persistent-select.multi .persistent-select-trigger>span{font-weight:600}
+          """
+          if '.persistent-select.multi .persistent-select-option' not in css: css += '\n'+extra.strip()+'\n'
+          write('dropdown-fix.css',css)
+
+          # Update tests for lossless raw manager column and checkbox multiselect.
+          t=read('tests-data.mjs')
+          t=t.replace("const fullManager='(TH00000001)01 TEST_HUB-ทดสอบ · นาย ทดสอบ ระบบ · 0812345678';","const fullManager='(TH00000001)01 TEST_HUB-ทดสอบ\\nนาย ทดสอบ ระบบ\\n0812345678';")
+          t=t.replace("assert.equal(managerValue({store_manager_phone:'0812345678'}),'0812345678');","assert.equal(managerValue({store_manager_phone:'0812345678'}),'()\\n0812345678');")
+          t=t.replace("assert.equal(managerValue({store_id:'TH00000001',store_name:'01 TEST_HUB-A',store_manager_name:'นาย ทดสอบ',store_manager_phone:'0812345678'}),'(TH00000001)01 TEST_HUB-A · นาย ทดสอบ · 0812345678');","assert.equal(managerValue({store_id:'TH00000001',store_name:'01 TEST_HUB-A',store_manager_name:'นาย ทดสอบ',store_manager_phone:'0812345678'}),'(TH00000001)01 TEST_HUB-A\\nนาย ทดสอบ\\n0812345678');assert.equal(managerValue({store_id:'1'}),'(1)');assert.equal(managerValue({store_id:''}),'()');")
+          t=t.replace("assert.equal(rowMatch({store_manager_display:fullManager,store_manager_phone:'0812345678',staff_info_phone:'099'},{manager:fullManager},branch,Date.now()),true);","assert.equal(rowMatch({store_manager_display:fullManager,store_manager_phone:'0812345678',staff_info_phone:'099'},{manager:fullManager},branch,Date.now()),true);assert.equal(rowMatch({store_manager_display:fullManager,store_manager_phone:'0812345678'},{manager:new Set([fullManager,'(1)'])},branch,Date.now()),true);")
+          t=t.replace('lossless full manager identity','lossless exact manager/store column including empty/id-only values and multiselect matching')
+          write('tests-data.mjs',t)
+
+          t=read('tests-ui.mjs')
+          t=t.replace("const M1='(TH00000001)01 TEST_HUB-A · นาย ผู้จัดการ เอ · 0811111111';","const M1='(TH00000001)01 TEST_HUB-A\\nนาย ผู้จัดการ เอ\\n0811111111';")
+          t=t.replace("const M2='(TH00000002)02 TEST_HUB-B · นางสาว ผู้จัดการ บี · 0822222222';","const M2='(TH00000002)02 TEST_HUB-B\\nนางสาว ผู้จัดการ บี\\n0822222222';")
+          t=t.replace('schemaVersion:9','schemaVersion:10')
+          old="fullManagerOption.click();assert.equal(managerWidget.classList.contains('open'),true);assert.match(managerWidget.querySelector('.persistent-select-trigger').textContent,/\\(TH00000001\\)01 TEST_HUB-A/);"
+          new="fullManagerOption.click();assert.equal(managerWidget.classList.contains('open'),true);assert.match(managerWidget.querySelector('.persistent-select-trigger').textContent,/\\(TH00000001\\)01 TEST_HUB-A/);let secondManagerOption=[...managerWidget.querySelectorAll('.persistent-select-option')].find(b=>b.textContent===M2);secondManagerOption.click();assert.equal([...w.document.querySelector('#manager-phone-filter').selectedOptions].filter(o=>o.value).length,2);assert.match(managerWidget.querySelector('.persistent-select-trigger').textContent,/2 รายการที่เลือก/);secondManagerOption=[...managerWidget.querySelectorAll('.persistent-select-option')].find(b=>b.textContent===M2);secondManagerOption.click();"
+          if old not in t: raise SystemExit('tests-ui multiselect anchor missing')
+          t=t.replace(old,new)
+          t=t.replace('persistent full manager dropdown','persistent checkbox multi-select exact manager dropdown')
+          write('tests-ui.mjs',t)
+
+          readme=read('README.md')
+          note='- ตัวกรอง LH / FD / การดำเนินการล่าสุด / ผู้จัดการสาขา เป็น checkbox multi-select และเลือกหลายค่าได้; คอลัมน์ผู้จัดการสาขาเก็บค่าตาม source ครบแม้เป็น `()`, `(1)` หรือไม่มีชื่อ/เบอร์ โดยไม่ตัดทิ้ง\n'
+          if note not in readme: readme += '\n'+note
+          write('README.md',readme)
+          PY
+
+      - name: Validate frontend and data
+        run: |
+          node --check app.js
+          node --check inspector.js
+          node --check analytics-client.js
+          node --check snapshot-client.js
+          node --check ops.js
+          node --check shell.js
+          node --check data-model.js
+          node --check auth-client.js
+          node --check dropdowns.js
+          node tests-data.mjs
+
+      - name: Validate six views and checkbox multiselect
+        run: |
+          npm install --prefix /tmp/ms-parcel-ui-test --no-package-lock --no-save jsdom@26.1.0
+          NODE_PATH=/tmp/ms-parcel-ui-test/node_modules node tests-ui.mjs
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Validate Edge
+        run: deno check supabase/functions/ms-parcel-api/index.ts
+
+      - name: Commit validated patch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add dropdowns.js dropdown-fix.css data-model.js ops.js shell.js index.html app.js analytics-client.js snapshot-client.js README.md tests-data.mjs tests-ui.mjs supabase/functions/ms-parcel-api/ms.ts supabase/functions/ms-parcel-api/analytics.ts supabase/functions/ms-parcel-api/index.ts
+          git commit -m 'fix: preserve full manager column and add checkbox multiselect filters'
+          git push
