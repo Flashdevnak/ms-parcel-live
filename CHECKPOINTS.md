@@ -42,15 +42,28 @@
 
 ## Smart Backlog Monitor — zero incremental backend quota
 - [x] Added client-side `<24h`, `24–48h`, `>48h` backlog classification from existing `real_arrive_time`.
-- [x] Added `ตกรอบรถ`: `plan_leave_time` has passed while parcel remains in unfinished list.
-- [x] Added `ใกล้ตกรอบ ≤60 นาที` warning from existing `plan_leave_time`.
+- [x] Expanded `<24h` into `<3`, `3–6`, `6–9`, `9–12`, `12–16`, `16–22`, `22–24` hour bands.
+- [x] Changed operational wording from `ตกรอบรถ` to `เกินเวลาแผน`: `plan_leave_time` has passed while parcel remains in unfinished list.
+- [x] Use `เกิน SLA 24 ชม.` / `เกิน SLA 48 ชม.` for inventory-age SLA grouping rather than using `คงคลัง` as the alert label.
+- [x] Added `ใกล้เวลาแผน ≤60 นาที` warning from existing `plan_leave_time`.
 - [x] Missing arrival timestamp stays `อายุไม่ทราบ`; no inferred/fabricated timestamp.
 - [x] Added risk badges on desktop table and mobile cards.
 - [x] Added current-page quick filters and counts.
 - [x] Added client-side `เสี่ยงสุดก่อน` sorting.
 - [x] Added `คัดลอกรายการที่กรอง` using Clipboard API for operational follow-up.
 - [x] Smart Monitor reuses rows already loaded by normal live cache and introduces no new Edge route, cron, DB table, MS request, or polling cadence.
-- [x] JavaScript CI `node --check app.js` passed for Smart Monitor commit before Pages deployment.
+
+## Bagging Inspector — zero incremental backend quota
+- [x] Added default `ทั้งหมด` mode and `เฉพาะมีเลขแบ็กกิ้ง` mode.
+- [x] Added Bagging search and filters sourced only from bagged rows currently loaded: latest action, destination HUB, destination branch, issue type.
+- [x] Destination HUB/branch labels strip one or more leading `(xxx)` / `（xxx）` prefixes before display/filtering.
+- [x] Added bag parcel count and unique bag count.
+- [x] Added anomaly detection: mixed destination, mixed latest action, mixed parcel state within the same bag.
+- [x] Added bag-level `เกินเวลาแผน`, `ไม่มีการอัปเดต >6 ชม.`, and critical `>48 ชม. + เกินเวลาแผน` checks.
+- [x] Added top problem-bag shortcuts; clicking a bag filters to that bag immediately.
+- [x] Added clipboard summary for filtered bag groups.
+- [x] Bagging Inspector is a frontend-only module (`inspector.js` + `inspector.css`) and introduces zero additional Edge/MS polling.
+- [x] CI now validates both `app.js` and `inspector.js`; latest Inspector deployment passed all Pages steps.
 
 ## Advisor note
 - [x] Security Advisor has no new RLS/schema warning; remaining `Leaked Password Protection Disabled` is the known Free-plan Auth warning.
@@ -72,3 +85,4 @@
 - v9-1: password minimum aligned to 6 characters.
 - v9-2: async admin form reset bug fixed and Store ID-from-HAR UX clarified.
 - v9-3: zero-quota Smart Backlog Monitor implemented.
+- v9-4: SLA sub-bands + Bagging Inspector implemented; frontend JavaScript validation expanded to both modules.
