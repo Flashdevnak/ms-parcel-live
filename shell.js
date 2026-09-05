@@ -1,38 +1,422 @@
-import './ops.js?v=20260906-1';
+const $ = (id) => document.getElementById(id);
+const fmt = new Intl.NumberFormat('th-TH');
+const PAGE_IDS = new Set(['dashboard', 'parcels', 'status', 'backlog', 'weight', 'bagging']);
+const TIME_BANDS = [
+  ['under3', '<3 ชม.'],
+  ['3to6', '3–6 ชม.'],
+  ['6to9', '6–9 ชม.'],
+  ['9to12', '9–12 ชม.'],
+  ['12to16', '12–16 ชม.'],
+  ['16to22', '16–22 ชม.'],
+  ['22to24', '22–24 ชม.'],
+  ['24to48', '24–48 ชม.'],
+  ['over48', '>48 ชม.'],
+];
 
-const $=(id)=>document.getElementById(id);
-const fmt=new Intl.NumberFormat('th-TH');
-const PAGE_IDS=new Set(['dashboard','parcels','status','backlog','weight','bagging']);
-const TIME_BANDS=[['under3','<3 ชม.'],['3to6','3–6 ชม.'],['6to9','6–9 ชม.'],['9to12','9–12 ชม.'],['12to16','12–16 ชม.'],['16to22','16–22 ชม.'],['22to24','22–24 ชม.'],['24to48','24–48 ชม.'],['over48','>48 ชม.']];
-const shellState={page:'dashboard',selectedBands:new Set(TIME_BANDS.map(([k])=>k)),scheduled:false};
-const text=(el)=>String(el?.textContent??'').trim();
-const escapeHtml=(v)=>String(v??'').replace(/[&<>"']/g,(c)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function parseMsTime(value){const raw=String(value??'').trim();if(!raw||raw==='-'||raw==='--')return NaN;let normalized=raw;if(/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(raw)&&!/(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw))normalized=raw.replace(' ','T')+'+07:00';const n=Date.parse(normalized);return Number.isFinite(n)?n:NaN;}
-function cleanDestination(value){const raw=String(value??'').trim();if(!raw)return'';return raw.replace(/^\s*(?:(?:\([^)]*\)|（[^）]*）)\s*)+/,'').trim()||raw;}
-function ageBand(h){if(h===null)return'unknown';if(h<3)return'under3';if(h<6)return'3to6';if(h<9)return'6to9';if(h<12)return'9to12';if(h<16)return'12to16';if(h<22)return'16to22';if(h<24)return'22to24';if(h<=48)return'24to48';return'over48';}
-function bandLabel(key){return key==='unknown'?'อายุไม่ทราบ':TIME_BANDS.find(([b])=>b===key)?.[1]||key;}
-function parseRows(now=Date.now()){return[...document.querySelectorAll('#table-body tr')].map((tr,index)=>{const c=tr.cells,plan=text(c[4]?.querySelector('.cell-stack > span')),arrived=text(c[4]?.querySelector('.cell-stack > small')),planAt=parseMsTime(plan),arrivedAt=parseMsTime(arrived),ageHours=Number.isFinite(arrivedAt)&&now>=arrivedAt?(now-arrivedAt)/3600000:null,hub=cleanDestination(text(c[9]?.querySelector('.cell-stack > span'))),branch=cleanDestination(text(c[9]?.querySelector('.cell-stack > small'))),packRaw=text(c[5]);return{tr,index,pno:text(c[0]),status:text(c[1]),plan,arrived,ageHours,band:ageBand(ageHours),planOverdue:Number.isFinite(planAt)&&now>planAt,pack:packRaw&&packRaw!=='-'&&packRaw!=='--'?packRaw:'',latestAction:text(c[7]?.querySelector('.cell-stack > span'))||'-',latestTime:text(c[7]?.querySelector('.cell-stack > small')),hub:hub||'-',branch:branch||'-',destination:[hub,branch].filter(Boolean).join(' / ')||'-'};});}
-function loadSelection(){try{const raw=JSON.parse(localStorage.getItem('ms-dashboard-time-bands')||'null');if(Array.isArray(raw))shellState.selectedBands=new Set(raw.filter((k)=>TIME_BANDS.some(([b])=>b===k)));}catch(_){}}
-function saveSelection(){localStorage.setItem('ms-dashboard-time-bands',JSON.stringify([...shellState.selectedBands]));}
-function selectedLabels(){return TIME_BANDS.filter(([k])=>shellState.selectedBands.has(k)).map(([,l])=>l);}
-function isAllSelected(){return shellState.selectedBands.size===TIME_BANDS.length;}
-function actionFilter(){return String($('ops-action-filter')?.value||'');}
-function updateTimeControls(){document.querySelectorAll('[data-dashboard-band]').forEach((input)=>{input.checked=shellState.selectedBands.has(input.dataset.dashboardBand);});const labels=selectedLabels(),summary=isAllSelected()?'ทั้งหมด':labels.length?labels.join(' + '):'ไม่ได้เลือก';if($('dashboard-time-selected'))$('dashboard-time-selected').textContent=summary;if($('backlog-time-label'))$('backlog-time-label').textContent=summary;}
-function countBy(rows,getter){const map=new Map();for(const row of rows){const key=String(getter(row)||'-').trim()||'-';map.set(key,(map.get(key)||0)+1);}return[...map.entries()].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0],'th'));}
-function renderSummaryList(id,entries,total,max=12){const el=$(id);if(!el)return;const rows=entries.slice(0,max);if(!rows.length){el.innerHTML='<div class="summary-empty">-</div>';return;}el.innerHTML=rows.map(([label,count])=>{const pct=total?Math.max(3,Math.round(count/total*100)):0;return`<div class="summary-row"><div><span>${escapeHtml(label)}</span><strong>${fmt.format(count)}</strong></div><i><b style="width:${pct}%"></b></i></div>`;}).join('');}
-function fullData(){const d=window.__MS_FULL_ANALYTICS;return d?.complete&&Array.isArray(d.cells)?d:null;}
-function fullCells({ignoreTime=false,ignoreDestination=false,ignoreAction=false}={}){const d=fullData();if(!d)return[];const bands=shellState.selectedBands,lh=String($('hub-filter')?.value||''),fd=String($('branch-filter')?.value||''),action=actionFilter();return d.cells.filter((c)=>{if(!ignoreTime&&!isAllSelected()&&!bands.has(c.b))return false;if(!ignoreDestination){if(lh&&(c.r!=='lh'||c.d!==lh))return false;if(fd&&(c.r!=='fd'||c.d!==fd))return false;}if(!ignoreAction&&action&&c.a!==action)return false;return true;});}
-function aggregate(cells,key){const map=new Map();for(const c of cells){const k=String(key(c)||'-'),v=map.get(k)||0;map.set(k,v+Number(c.c||0));}return[...map.entries()].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0],'th'));}
-function metrics(cells){return cells.reduce((m,c)=>{m.count+=Number(c.c||0);m.bagged+=Number(c.g||0);m.overdue+=Number(c.o||0);m.critical+=Number(c.q||0);return m;},{count:0,bagged:0,overdue:0,critical:0});}
-function renderFullDashboard(d){const cells=fullCells(),m=metrics(cells),baseBandCells=fullCells({ignoreTime:true}),bandCounts=new Map(TIME_BANDS.map(([k])=>[k,0]));for(const c of baseBandCells)if(bandCounts.has(c.b))bandCounts.set(c.b,(bandCounts.get(c.b)||0)+Number(c.c||0));document.querySelectorAll('[data-band-count]').forEach((el)=>{el.textContent=fmt.format(bandCounts.get(el.dataset.bandCount)||0);});$('dash-loaded').textContent=fmt.format(Number(d.total||0));$('dash-selected').textContent=fmt.format(m.count);$('dash-over-plan').textContent=fmt.format(m.overdue);$('dash-bagged').textContent=fmt.format(m.bagged);$('dash-critical').textContent=fmt.format(m.critical);if($('dashboard-selection-note'))$('dashboard-selection-note').textContent=`${fmt.format(m.count)} / ${fmt.format(Number(d.total||0))} รายการ`;renderSummaryList('dashboard-time-summary',TIME_BANDS.map(([k,l])=>[l,bandCounts.get(k)||0]),baseBandCells.reduce((s,c)=>s+Number(c.c||0),0),TIME_BANDS.length);renderSummaryList('dashboard-hub-summary',aggregate(cells.filter((c)=>c.r==='lh'),(c)=>c.d),m.count);renderSummaryList('dashboard-branch-summary',aggregate(cells.filter((c)=>c.r==='fd'),(c)=>c.d),m.count);renderSummaryList('dashboard-action-summary',aggregate(cells,(c)=>c.a),m.count);updateTimeControls();applySelectedTimeFilter();}
-function renderPageDashboard(){const d=fullData();if(d){renderFullDashboard(d);return;}const base=parseRows().filter((r)=>!actionFilter()||r.latestAction===actionFilter()),selected=isAllSelected()?base:base.filter((r)=>shellState.selectedBands.has(r.band)),unknown=base.filter((r)=>r.band==='unknown').length,overPlan=selected.filter((r)=>r.planOverdue).length,bagged=selected.filter((r)=>r.pack).length,critical=selected.filter((r)=>r.band==='over48'&&r.planOverdue).length,totalFull=Number(String(text($('m-total'))).replace(/,/g,''))||base.length;$('dash-loaded').textContent=fmt.format(totalFull);$('dash-selected').textContent=fmt.format(selected.length);$('dash-over-plan').textContent=fmt.format(overPlan);$('dash-bagged').textContent=fmt.format(bagged);$('dash-critical').textContent=fmt.format(critical);const bandCounts=new Map(TIME_BANDS.map(([k])=>[k,0]));for(const r of base)if(bandCounts.has(r.band))bandCounts.set(r.band,(bandCounts.get(r.band)||0)+1);document.querySelectorAll('[data-band-count]').forEach((el)=>el.textContent=fmt.format(bandCounts.get(el.dataset.bandCount)||0));if($('dashboard-selection-note'))$('dashboard-selection-note').textContent=`${fmt.format(selected.length)} รายการในหน้าปัจจุบัน${unknown?` · ไม่ทราบอายุ ${fmt.format(unknown)}`:''}`;renderSummaryList('dashboard-time-summary',TIME_BANDS.map(([k,l])=>[l,bandCounts.get(k)||0]),base.length,TIME_BANDS.length);renderSummaryList('dashboard-hub-summary',countBy(selected,(r)=>r.hub),selected.length);renderSummaryList('dashboard-branch-summary',countBy(selected,(r)=>r.branch),selected.length);renderSummaryList('dashboard-action-summary',countBy(selected,(r)=>r.latestAction),selected.length);updateTimeControls();applySelectedTimeFilter();}
-function applySelectedTimeFilter(){const rows=parseRows(),active=shellState.page!=='dashboard'&&!isAllSelected(),action=actionFilter();rows.forEach((r)=>r.tr.classList.toggle('dashboard-time-hidden',(active&&!shellState.selectedBands.has(r.band))||(action&&r.latestAction!==action)));const cards=[...document.querySelectorAll('#mobile-cards .mobile-card')];rows.forEach((r)=>cards[r.index]?.classList.toggle('dashboard-time-hidden',(active&&!shellState.selectedBands.has(r.band))||(action&&r.latestAction!==action)));$('backlog-time-banner')?.classList.toggle('hidden',!(shellState.page==='backlog'&&active));}
-async function copySelectedSummary(){const d=fullData();if(d){const cells=fullCells(),m=metrics(cells),bands=aggregate(cells,(c)=>c.b),lhs=aggregate(cells.filter((c)=>c.r==='lh'),(c)=>c.d),fds=aggregate(cells.filter((c)=>c.r==='fd'),(c)=>c.d),actions=aggregate(cells,(c)=>c.a),labelMap=Object.fromEntries(TIME_BANDS);labelMap.unknown='อายุไม่ทราบ';const lines=[`MS Parcel Live · ${text($('branch-select')?.selectedOptions?.[0])||'-'}`,`ช่วงเวลา: ${isAllSelected()?'ทั้งหมด':selectedLabels().join(', ')}`,`รวม ${fmt.format(m.count)} รายการ`,'','ช่วงเวลา',...bands.map(([k,c])=>`- ${labelMap[k]||k}: ${fmt.format(c)}`),'','LH ปลายทาง',...lhs.map(([n,c])=>`- ${n}: ${fmt.format(c)}`),'','FD ปลายทาง',...fds.map(([n,c])=>`- ${n}: ${fmt.format(c)}`),'','การดำเนินการล่าสุด',...actions.map(([n,c])=>`- ${n}: ${fmt.format(c)}`)];try{await navigator.clipboard.writeText(lines.join('\n'));if($('dashboard-copy-status'))$('dashboard-copy-status').textContent=`คัดลอกสรุป ${fmt.format(m.count)} รายการแล้ว`;}catch(_){if($('dashboard-copy-status'))$('dashboard-copy-status').textContent='คัดลอกไม่สำเร็จ';}return;}const rows=parseRows().filter((r)=>(isAllSelected()||shellState.selectedBands.has(r.band))&&(!actionFilter()||r.latestAction===actionFilter()));if(!rows.length){if($('dashboard-copy-status'))$('dashboard-copy-status').textContent='ไม่มีรายการ';return;}const lines=[`MS Parcel Live · ${text($('branch-select')?.selectedOptions?.[0])||'-'}`,`รวม ${fmt.format(rows.length)} รายการในหน้าปัจจุบัน`,...rows.map((r,i)=>`${i+1}. ${r.pno} | ${bandLabel(r.band)} | ${r.latestAction} | ${r.destination}`)];try{await navigator.clipboard.writeText(lines.join('\n'));if($('dashboard-copy-status'))$('dashboard-copy-status').textContent=`คัดลอก ${fmt.format(rows.length)} รายการแล้ว`;}catch(_){}}
-function clearDashboardOnlyFilters(){let changed=false;if($('search-input')?.value){$('search-input').value='';changed=true;}if($('status-filter')?.value){$('status-filter').value='';changed=true;}if(changed)$('search-input')?.dispatchEvent(new Event('input',{bubbles:true}));}
-function resetPageFiltersFor(page){if(page==='dashboard'){clearDashboardOnlyFilters();$('bag-reset-btn')?.click();document.querySelector('.smart-filter[data-risk="all"]')?.click();}else if(page==='parcels'||page==='status'||page==='weight'){$('bag-reset-btn')?.click();document.querySelector('.smart-filter[data-risk="all"]')?.click();}else if(page==='backlog')$('bag-reset-btn')?.click();else if(page==='bagging')document.querySelector('.smart-filter[data-risk="all"]')?.click();}
-function moveResults(page){const panel=$('results-panel');if(!panel)return;const slot=page==='backlog'?$('backlog-results-slot'):page==='parcels'?$('parcels-results-slot'):null;if(slot&&panel.parentElement!==slot)slot.appendChild(panel);}
-function setPage(nextPage,{updateHash=true,resetFilters=true}={}){const page=PAGE_IDS.has(nextPage)?nextPage:'dashboard';shellState.page=page;if(resetFilters)resetPageFiltersFor(page);document.querySelectorAll('[data-page-view]').forEach((s)=>s.classList.toggle('hidden',s.dataset.pageView!==page));document.querySelectorAll('[data-page-nav]').forEach((b)=>b.classList.toggle('active',b.dataset.pageNav===page));moveResults(page);if(updateHash&&location.hash!==`#${page}`)history.replaceState(null,'',`#${page}`);applySelectedTimeFilter();renderPageDashboard();window.scrollTo({top:0,behavior:'auto'});}
-function scheduleDashboardRender(){if(shellState.scheduled)return;shellState.scheduled=true;requestAnimationFrame(()=>{shellState.scheduled=false;renderPageDashboard();});}
-function bindEvents(){document.querySelectorAll('[data-page-nav]').forEach((b)=>b.addEventListener('click',()=>setPage(b.dataset.pageNav)));window.addEventListener('hashchange',()=>setPage(location.hash.slice(1),{updateHash:false}));document.querySelectorAll('[data-dashboard-band]').forEach((input)=>input.addEventListener('change',()=>{const key=input.dataset.dashboardBand;if(input.checked)shellState.selectedBands.add(key);else shellState.selectedBands.delete(key);saveSelection();renderPageDashboard();}));$('dashboard-time-all')?.addEventListener('click',()=>{shellState.selectedBands=new Set(TIME_BANDS.map(([k])=>k));saveSelection();renderPageDashboard();});$('dashboard-time-clear')?.addEventListener('click',()=>{shellState.selectedBands.clear();saveSelection();renderPageDashboard();});$('dashboard-copy-selected')?.addEventListener('click',()=>void copySelectedSummary());$('dashboard-open-selected')?.addEventListener('click',()=>{if(!shellState.selectedBands.size){if($('dashboard-copy-status'))$('dashboard-copy-status').textContent='เลือกช่วงเวลาก่อน';return;}setPage('backlog',{resetFilters:false});});$('backlog-time-clear')?.addEventListener('click',()=>{shellState.selectedBands=new Set(TIME_BANDS.map(([k])=>k));saveSelection();renderPageDashboard();});$('ops-action-filter')?.addEventListener('change',()=>{scheduleDashboardRender();applySelectedTimeFilter();});window.addEventListener('ms-full-analytics',scheduleDashboardRender);}
-function init(){loadSelection();bindEvents();const tbody=$('table-body');if(tbody)new MutationObserver(scheduleDashboardRender).observe(tbody,{childList:true});const initial=PAGE_IDS.has(location.hash.slice(1))?location.hash.slice(1):'dashboard';setPage(initial,{updateHash:true,resetFilters:false});renderPageDashboard();setInterval(()=>{if(!document.hidden)renderPageDashboard();},60000);}
-if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});else init();
+const shellState = {
+  page: 'dashboard',
+  selectedBands: new Set(TIME_BANDS.map(([key]) => key)),
+  scheduled: false,
+};
+
+const text = (el) => String(el?.textContent ?? '').trim();
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+}[c]));
+
+function parseMsTime(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw || raw === '-' || raw === '--') return NaN;
+  let normalized = raw;
+  if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(raw) && !/(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw)) {
+    normalized = raw.replace(' ', 'T') + '+07:00';
+  }
+  const parsed = Date.parse(normalized);
+  return Number.isFinite(parsed) ? parsed : NaN;
+}
+
+function cleanDestination(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  return raw.replace(/^\s*(?:(?:\([^)]*\)|（[^）]*）)\s*)+/, '').trim() || raw;
+}
+
+function ageBand(hours) {
+  if (hours === null) return 'unknown';
+  if (hours < 3) return 'under3';
+  if (hours < 6) return '3to6';
+  if (hours < 9) return '6to9';
+  if (hours < 12) return '9to12';
+  if (hours < 16) return '12to16';
+  if (hours < 22) return '16to22';
+  if (hours < 24) return '22to24';
+  if (hours <= 48) return '24to48';
+  return 'over48';
+}
+
+function bandLabel(key) {
+  if (key === 'unknown') return 'อายุไม่ทราบ';
+  return TIME_BANDS.find(([band]) => band === key)?.[1] || key;
+}
+
+function parseRows(now = Date.now()) {
+  return [...document.querySelectorAll('#table-body tr')].map((tr, index) => {
+    const c = tr.cells;
+    const plan = text(c[4]?.querySelector('.cell-stack > span'));
+    const arrived = text(c[4]?.querySelector('.cell-stack > small'));
+    const planAt = parseMsTime(plan);
+    const arrivedAt = parseMsTime(arrived);
+    const ageHours = Number.isFinite(arrivedAt) && now >= arrivedAt ? (now - arrivedAt) / 3600000 : null;
+    const hub = cleanDestination(text(c[9]?.querySelector('.cell-stack > span')));
+    const branch = cleanDestination(text(c[9]?.querySelector('.cell-stack > small')));
+    const packRaw = text(c[5]);
+    return {
+      tr,
+      index,
+      pno: text(c[0]),
+      status: text(c[1]),
+      plan,
+      arrived,
+      band: ageBand(ageHours),
+      planOverdue: Number.isFinite(planAt) && now > planAt,
+      pack: packRaw && packRaw !== '-' && packRaw !== '--' ? packRaw : '',
+      latestAction: text(c[7]?.querySelector('.cell-stack > span')) || '-',
+      hub: hub || '-',
+      branch: branch || '-',
+      destination: [hub, branch].filter(Boolean).join(' / ') || '-',
+    };
+  }).filter((row) => row.pno);
+}
+
+function loadSelection() {
+  try {
+    const raw = JSON.parse(localStorage.getItem('ms-dashboard-time-bands') || 'null');
+    if (Array.isArray(raw)) {
+      shellState.selectedBands = new Set(raw.filter((key) => TIME_BANDS.some(([band]) => band === key)));
+    }
+  } catch (_) {}
+}
+
+function saveSelection() {
+  try {
+    localStorage.setItem('ms-dashboard-time-bands', JSON.stringify([...shellState.selectedBands]));
+  } catch (_) {}
+}
+
+function isAllSelected() {
+  return shellState.selectedBands.size === TIME_BANDS.length;
+}
+
+function selectedLabels() {
+  return TIME_BANDS.filter(([key]) => shellState.selectedBands.has(key)).map(([, label]) => label);
+}
+
+function actionFilter() {
+  return String($('ops-action-filter')?.value || '');
+}
+
+function updateTimeControls() {
+  document.querySelectorAll('[data-dashboard-band]').forEach((input) => {
+    input.checked = shellState.selectedBands.has(input.dataset.dashboardBand);
+  });
+  const summary = isAllSelected()
+    ? 'ทั้งหมด'
+    : selectedLabels().length
+      ? selectedLabels().join(' + ')
+      : 'ไม่ได้เลือก';
+  if ($('dashboard-time-selected')) $('dashboard-time-selected').textContent = summary;
+  if ($('backlog-time-label')) $('backlog-time-label').textContent = summary;
+}
+
+function renderSummaryList(id, entries, total, max = 12) {
+  const el = $(id);
+  if (!el) return;
+  const rows = entries.slice(0, max);
+  if (!rows.length) {
+    el.innerHTML = '<div class="summary-empty">-</div>';
+    return;
+  }
+  el.innerHTML = rows.map(([label, count]) => {
+    const pct = total ? Math.max(3, Math.round((count / total) * 100)) : 0;
+    return `<div class="summary-row"><div><span>${esc(label)}</span><strong>${fmt.format(count)}</strong></div><i><b style="width:${pct}%"></b></i></div>`;
+  }).join('');
+}
+
+function countBy(rows, getter) {
+  const map = new Map();
+  for (const row of rows) {
+    const key = String(getter(row) || '-').trim() || '-';
+    map.set(key, (map.get(key) || 0) + 1);
+  }
+  return [...map.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'th'));
+}
+
+function fullData() {
+  const data = window.__MS_FULL_ANALYTICS;
+  return data?.complete && Array.isArray(data.cells) ? data : null;
+}
+
+function fullCells({ ignoreTime = false } = {}) {
+  const data = fullData();
+  if (!data) return [];
+  const lh = String($('hub-filter')?.value || '');
+  const fd = String($('branch-filter')?.value || '');
+  const action = actionFilter();
+  return data.cells.filter((cell) => {
+    if (!ignoreTime && !isAllSelected() && !shellState.selectedBands.has(cell.b)) return false;
+    if (lh && (cell.r !== 'lh' || cell.d !== lh)) return false;
+    if (fd && (cell.r !== 'fd' || cell.d !== fd)) return false;
+    if (action && cell.a !== action) return false;
+    return true;
+  });
+}
+
+function aggregate(cells, getter) {
+  const map = new Map();
+  for (const cell of cells) {
+    const key = String(getter(cell) || '-');
+    map.set(key, (map.get(key) || 0) + Number(cell.c || 0));
+  }
+  return [...map.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'th'));
+}
+
+function fullMetrics(cells) {
+  return cells.reduce((out, cell) => {
+    out.count += Number(cell.c || 0);
+    out.bagged += Number(cell.g || 0);
+    out.overdue += Number(cell.o || 0);
+    out.critical += Number(cell.q || 0);
+    return out;
+  }, { count: 0, bagged: 0, overdue: 0, critical: 0 });
+}
+
+function renderFullDashboard(data) {
+  const cells = fullCells();
+  const metrics = fullMetrics(cells);
+  const baseBandCells = fullCells({ ignoreTime: true });
+  const bandCounts = new Map(TIME_BANDS.map(([key]) => [key, 0]));
+  for (const cell of baseBandCells) {
+    if (bandCounts.has(cell.b)) bandCounts.set(cell.b, (bandCounts.get(cell.b) || 0) + Number(cell.c || 0));
+  }
+  document.querySelectorAll('[data-band-count]').forEach((el) => {
+    el.textContent = fmt.format(bandCounts.get(el.dataset.bandCount) || 0);
+  });
+  if ($('dash-loaded')) $('dash-loaded').textContent = fmt.format(Number(data.total || 0));
+  if ($('dash-selected')) $('dash-selected').textContent = fmt.format(metrics.count);
+  if ($('dash-over-plan')) $('dash-over-plan').textContent = fmt.format(metrics.overdue);
+  if ($('dash-bagged')) $('dash-bagged').textContent = fmt.format(metrics.bagged);
+  if ($('dash-critical')) $('dash-critical').textContent = fmt.format(metrics.critical);
+  if ($('dashboard-selection-note')) $('dashboard-selection-note').textContent = `${fmt.format(metrics.count)} / ${fmt.format(Number(data.total || 0))} รายการ`;
+  renderSummaryList('dashboard-time-summary', TIME_BANDS.map(([key, label]) => [label, bandCounts.get(key) || 0]), Number(data.total || 0), TIME_BANDS.length);
+  renderSummaryList('dashboard-hub-summary', aggregate(cells.filter((cell) => cell.r === 'lh'), (cell) => cell.d), metrics.count);
+  renderSummaryList('dashboard-branch-summary', aggregate(cells.filter((cell) => cell.r === 'fd'), (cell) => cell.d), metrics.count);
+  renderSummaryList('dashboard-action-summary', aggregate(cells, (cell) => cell.a), metrics.count);
+}
+
+function renderPageDashboard() {
+  const data = fullData();
+  if (data) {
+    renderFullDashboard(data);
+    updateTimeControls();
+    applySelectedTimeFilter();
+    return;
+  }
+
+  const rows = parseRows();
+  const action = actionFilter();
+  const base = action ? rows.filter((row) => row.latestAction === action) : rows;
+  const selected = isAllSelected() ? base : base.filter((row) => shellState.selectedBands.has(row.band));
+  const totalFull = Number(String(text($('m-total'))).replace(/,/g, '')) || 0;
+  const overPlan = selected.filter((row) => row.planOverdue).length;
+  const bagged = selected.filter((row) => row.pack).length;
+  const critical = selected.filter((row) => row.band === 'over48' && row.planOverdue).length;
+
+  if ($('dash-loaded')) $('dash-loaded').textContent = fmt.format(totalFull);
+  if ($('dash-selected')) $('dash-selected').textContent = fmt.format(selected.length);
+  if ($('dash-over-plan')) $('dash-over-plan').textContent = fmt.format(overPlan);
+  if ($('dash-bagged')) $('dash-bagged').textContent = fmt.format(bagged);
+  if ($('dash-critical')) $('dash-critical').textContent = fmt.format(critical);
+
+  const bandCounts = new Map(TIME_BANDS.map(([key]) => [key, 0]));
+  for (const row of base) {
+    if (bandCounts.has(row.band)) bandCounts.set(row.band, (bandCounts.get(row.band) || 0) + 1);
+  }
+  document.querySelectorAll('[data-band-count]').forEach((el) => {
+    el.textContent = fmt.format(bandCounts.get(el.dataset.bandCount) || 0);
+  });
+  if ($('dashboard-selection-note')) {
+    $('dashboard-selection-note').textContent = selected.length ? `${fmt.format(selected.length)} รายการ` : '-';
+  }
+  renderSummaryList('dashboard-time-summary', TIME_BANDS.map(([key, label]) => [label, bandCounts.get(key) || 0]), base.length, TIME_BANDS.length);
+  renderSummaryList('dashboard-hub-summary', countBy(selected, (row) => row.hub), selected.length);
+  renderSummaryList('dashboard-branch-summary', countBy(selected, (row) => row.branch), selected.length);
+  renderSummaryList('dashboard-action-summary', countBy(selected, (row) => row.latestAction), selected.length);
+  updateTimeControls();
+  applySelectedTimeFilter();
+}
+
+function applySelectedTimeFilter() {
+  const rows = parseRows();
+  const active = shellState.page !== 'dashboard' && !isAllSelected();
+  const action = actionFilter();
+  const cards = [...document.querySelectorAll('#mobile-cards .mobile-card')];
+  rows.forEach((row) => {
+    const hidden = (active && !shellState.selectedBands.has(row.band)) || (action && row.latestAction !== action);
+    row.tr.classList.toggle('dashboard-time-hidden', hidden);
+    cards[row.index]?.classList.toggle('dashboard-time-hidden', hidden);
+  });
+  $('backlog-time-banner')?.classList.toggle('hidden', !(shellState.page === 'backlog' && active));
+}
+
+function moveResults(page) {
+  const panel = $('results-panel');
+  if (!panel) return;
+  const slot = page === 'backlog' ? $('backlog-results-slot') : page === 'parcels' ? $('parcels-results-slot') : null;
+  if (slot && panel.parentElement !== slot) slot.appendChild(panel);
+}
+
+function setPage(nextPage, { updateHash = true } = {}) {
+  const page = PAGE_IDS.has(nextPage) ? nextPage : 'dashboard';
+  const target = document.querySelector(`[data-page-view="${page}"]`);
+  if (!target && (page === 'status' || page === 'weight')) {
+    shellState.page = page;
+    document.querySelectorAll('[data-page-nav]').forEach((button) => button.classList.toggle('active', button.dataset.pageNav === page));
+    return;
+  }
+  shellState.page = page;
+  document.querySelectorAll('[data-page-view]').forEach((section) => {
+    section.classList.toggle('hidden', section.dataset.pageView !== page);
+  });
+  document.querySelectorAll('[data-page-nav]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.pageNav === page);
+  });
+  moveResults(page);
+  if (updateHash && location.hash !== `#${page}`) history.replaceState(null, '', `#${page}`);
+  applySelectedTimeFilter();
+  renderPageDashboard();
+  window.scrollTo({ top: 0, behavior: 'auto' });
+}
+
+async function copySelectedSummary() {
+  const data = fullData();
+  if (data) {
+    const cells = fullCells();
+    const metrics = fullMetrics(cells);
+    const labels = Object.fromEntries(TIME_BANDS);
+    labels.unknown = 'อายุไม่ทราบ';
+    const lines = [
+      `MS Parcel Live · ${text($('branch-select')?.selectedOptions?.[0]) || '-'}`,
+      `ช่วงเวลา: ${isAllSelected() ? 'ทั้งหมด' : selectedLabels().join(', ')}`,
+      `รวม ${fmt.format(metrics.count)} รายการ`,
+      '', 'ช่วงเวลา',
+      ...aggregate(cells, (cell) => cell.b).map(([key, count]) => `- ${labels[key] || key}: ${fmt.format(count)}`),
+      '', 'LH ปลายทาง',
+      ...aggregate(cells.filter((cell) => cell.r === 'lh'), (cell) => cell.d).map(([name, count]) => `- ${name}: ${fmt.format(count)}`),
+      '', 'FD ปลายทาง',
+      ...aggregate(cells.filter((cell) => cell.r === 'fd'), (cell) => cell.d).map(([name, count]) => `- ${name}: ${fmt.format(count)}`),
+      '', 'การดำเนินการล่าสุด',
+      ...aggregate(cells, (cell) => cell.a).map(([name, count]) => `- ${name}: ${fmt.format(count)}`),
+    ];
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'));
+      if ($('dashboard-copy-status')) $('dashboard-copy-status').textContent = `คัดลอก ${fmt.format(metrics.count)} รายการแล้ว`;
+    } catch (_) {
+      if ($('dashboard-copy-status')) $('dashboard-copy-status').textContent = 'คัดลอกไม่สำเร็จ';
+    }
+    return;
+  }
+
+  const rows = parseRows().filter((row) => isAllSelected() || shellState.selectedBands.has(row.band));
+  if (!rows.length) {
+    if ($('dashboard-copy-status')) $('dashboard-copy-status').textContent = 'ยังไม่มีรายการ';
+    return;
+  }
+  const lines = [
+    `MS Parcel Live · ${text($('branch-select')?.selectedOptions?.[0]) || '-'}`,
+    `รวม ${fmt.format(rows.length)} รายการ`,
+    ...rows.map((row, index) => `${index + 1}. ${row.pno} | ${bandLabel(row.band)} | ${row.latestAction} | ${row.destination}`),
+  ];
+  try {
+    await navigator.clipboard.writeText(lines.join('\n'));
+    if ($('dashboard-copy-status')) $('dashboard-copy-status').textContent = `คัดลอก ${fmt.format(rows.length)} รายการแล้ว`;
+  } catch (_) {}
+}
+
+function scheduleDashboardRender() {
+  if (shellState.scheduled) return;
+  shellState.scheduled = true;
+  requestAnimationFrame(() => {
+    shellState.scheduled = false;
+    try { renderPageDashboard(); } catch (error) { console.error('[shell render]', error); }
+  });
+}
+
+function bindCoreEvents() {
+  document.querySelectorAll('[data-page-nav]').forEach((button) => {
+    button.addEventListener('click', () => setPage(button.dataset.pageNav));
+  });
+  window.addEventListener('hashchange', () => setPage(location.hash.slice(1), { updateHash: false }));
+  document.querySelectorAll('[data-dashboard-band]').forEach((input) => {
+    input.addEventListener('change', () => {
+      const key = input.dataset.dashboardBand;
+      if (input.checked) shellState.selectedBands.add(key);
+      else shellState.selectedBands.delete(key);
+      saveSelection();
+      renderPageDashboard();
+    });
+  });
+  $('dashboard-time-all')?.addEventListener('click', () => {
+    shellState.selectedBands = new Set(TIME_BANDS.map(([key]) => key));
+    saveSelection();
+    renderPageDashboard();
+  });
+  $('dashboard-time-clear')?.addEventListener('click', () => {
+    shellState.selectedBands.clear();
+    saveSelection();
+    renderPageDashboard();
+  });
+  $('dashboard-copy-selected')?.addEventListener('click', () => void copySelectedSummary());
+  $('dashboard-open-selected')?.addEventListener('click', () => setPage('backlog'));
+  $('backlog-time-clear')?.addEventListener('click', () => {
+    shellState.selectedBands = new Set(TIME_BANDS.map(([key]) => key));
+    saveSelection();
+    renderPageDashboard();
+  });
+  window.addEventListener('ms-full-analytics', scheduleDashboardRender);
+  document.addEventListener('change', (event) => {
+    if (event.target?.id === 'ops-action-filter' || event.target?.id === 'hub-filter' || event.target?.id === 'branch-filter') {
+      scheduleDashboardRender();
+    }
+  });
+}
+
+function loadOptionalModules() {
+  import('./ops.js?v=20260906-2')
+    .then(() => {
+      const pending = shellState.page;
+      if (pending === 'status' || pending === 'weight') setPage(pending, { updateHash: false });
+      scheduleDashboardRender();
+    })
+    .catch((error) => console.error('[ops module]', error));
+
+  import('./analytics-client.js?v=20260906-2')
+    .catch((error) => console.error('[analytics module]', error));
+}
+
+function init() {
+  loadSelection();
+  bindCoreEvents();
+  const tbody = $('table-body');
+  if (tbody) new MutationObserver(scheduleDashboardRender).observe(tbody, { childList: true });
+  const initial = PAGE_IDS.has(location.hash.slice(1)) ? location.hash.slice(1) : 'dashboard';
+  setPage(initial, { updateHash: true });
+  renderPageDashboard();
+  window.__MS_NAV_READY = true;
+  setTimeout(loadOptionalModules, 0);
+  setInterval(() => {
+    if (!document.hidden) scheduleDashboardRender();
+  }, 60000);
+}
+
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, { once: true });
+else init();
