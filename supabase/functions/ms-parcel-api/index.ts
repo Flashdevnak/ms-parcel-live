@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { asBranchId, authenticate, authPasswordLogin, cors, db, encryptCredential, ensureProfile, errMessage, hashPage, hashSummary, json, normalizeUsername, publicProfile, validUsername } from './core.ts';
 import { createBranch, changeUser, createManagedUser, listUsers } from './admin.ts';
+import { buildFullAnalytics } from './analytics.ts';
 import { diffRows, fetchLivePage, fetchSummary, getConnection, listBranches, liveResponseFromCache, oldHashForCache, pickHarRequest, resolveBranch, updateConnectionHealth } from './ms.ts';
 
 Deno.serve(async(req)=>{
@@ -79,6 +80,18 @@ Deno.serve(async(req)=>{
         await updateConnectionHealth(conn,true);
         return json({ok:true,data:payload,meta:{cache:'miss',ttlMs:60000,branchId}});
       }catch(e){const m=errMessage(e);await updateConnectionHealth(conn,false,m);if(c?.payload)return json({ok:true,data:c.payload,meta:{cache:'stale',stale:true,error:m,ttlMs:15000,branchId}});return json({ok:false,message:m},502);}
+    }
+
+    if(req.method==='GET'&&route==='analytics'){
+      const cacheKey=`b:${branchId}:summary:full-analytics-v1`,cached=await db(`summary_cache?cache_key=eq.${encodeURIComponent(cacheKey)}&select=*&limit=1`),c=cached?.[0];
+      if(c&&new Date(c.expires_at).getTime()>Date.now())return json({ok:true,data:c.payload,meta:{cache:'hit',expiresAt:c.expires_at,ttlMs:Math.max(0,new Date(c.expires_at).getTime()-Date.now()),branchId}});
+      const conn=await getConnection(branchId);
+      try{
+        const analytics=await buildFullAnalytics(conn,branch,5000),sourceAt=new Date().toISOString(),ttlMs=analytics.complete?15*60_000:5*60_000,expiresAt=new Date(Date.now()+ttlMs).toISOString(),payload={...analytics,sourceAt,branchId},hash=await hashSummary(payload);
+        await db('summary_cache?on_conflict=cache_key',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({cache_key:cacheKey,branch_id:branchId,payload,content_hash:hash,source_updated_at:sourceAt,expires_at:expiresAt})});
+        await updateConnectionHealth(conn,true);
+        return json({ok:true,data:payload,meta:{cache:'miss',ttlMs,branchId}});
+      }catch(e){const m=errMessage(e);await updateConnectionHealth(conn,false,m);if(c?.payload)return json({ok:true,data:c.payload,meta:{cache:'stale',stale:true,error:m,ttlMs:60_000,branchId}});return json({ok:false,message:m},502);}
     }
 
     if(req.method==='GET'&&route==='live'){
