@@ -1,7 +1,9 @@
+import './ops.js?v=20260905-1';
+
 const $ = (id) => document.getElementById(id);
 const fmt = new Intl.NumberFormat('th-TH');
 
-const PAGE_IDS = new Set(['dashboard', 'parcels', 'backlog', 'bagging']);
+const PAGE_IDS = new Set(['dashboard', 'parcels', 'status', 'backlog', 'weight', 'bagging']);
 const TIME_BANDS = [
   ['under3', '<3 ชม.'],
   ['3to6', '3–6 ชม.'],
@@ -112,6 +114,10 @@ function isAllSelected() {
   return shellState.selectedBands.size === TIME_BANDS.length;
 }
 
+function actionFilter() {
+  return String($('ops-action-filter')?.value || '');
+}
+
 function updateTimeControls() {
   document.querySelectorAll('[data-dashboard-band]').forEach((input) => {
     input.checked = shellState.selectedBands.has(input.dataset.dashboardBand);
@@ -160,8 +166,13 @@ function normalizeDestinationSelectLabels() {
   }
 }
 
+function dashboardRows() {
+  const action = actionFilter();
+  return parseRows().filter((row) => !action || row.latestAction === action);
+}
+
 function renderDashboard() {
-  const rows = parseRows();
+  const rows = dashboardRows();
   const selected = rows.filter((row) => shellState.selectedBands.has(row.band));
   const unknown = rows.filter((row) => row.band === 'unknown').length;
   const overPlan = rows.filter((row) => row.planOverdue).length;
@@ -197,21 +208,23 @@ function renderDashboard() {
 
 function applySelectedTimeFilter() {
   const rows = parseRows();
-  const active = shellState.page !== 'dashboard' && !isAllSelected();
+  const timeActive = shellState.page !== 'dashboard' && !isAllSelected();
+  const action = actionFilter();
   rows.forEach((row) => {
-    const hide = active && !shellState.selectedBands.has(row.band);
+    const hide = (timeActive && !shellState.selectedBands.has(row.band)) || (!!action && row.latestAction !== action);
     row.tr.classList.toggle('dashboard-time-hidden', hide);
   });
   const cards = [...document.querySelectorAll('#mobile-cards .mobile-card')];
   rows.forEach((row) => {
-    const hide = active && !shellState.selectedBands.has(row.band);
+    const hide = (timeActive && !shellState.selectedBands.has(row.band)) || (!!action && row.latestAction !== action);
     cards[row.index]?.classList.toggle('dashboard-time-hidden', hide);
   });
-  $('backlog-time-banner')?.classList.toggle('hidden', !(shellState.page === 'backlog' && active));
+  $('backlog-time-banner')?.classList.toggle('hidden', !(shellState.page === 'backlog' && timeActive));
 }
 
 function selectedRows(now = Date.now()) {
-  return parseRows(now).filter((row) => shellState.selectedBands.has(row.band));
+  const action = actionFilter();
+  return parseRows(now).filter((row) => shellState.selectedBands.has(row.band) && (!action || row.latestAction === action));
 }
 
 async function copySelectedSummary() {
@@ -244,10 +257,10 @@ async function copySelectedSummary() {
     'ช่วงเวลา',
     ...TIME_BANDS.filter(([key]) => shellState.selectedBands.has(key)).map(([key, label]) => `- ${label}: ${fmt.format(bandCounts.get(key) || 0)}`),
     '',
-    'HUB ปลายทาง',
+    'LH ปลายทาง',
     ...[...hubs.entries()].sort((a, b) => b[1] - a[1]).map(([name, count]) => `- ${name}: ${fmt.format(count)}`),
     '',
-    'สาขาปลายทาง',
+    'FD ปลายทาง',
     ...[...branches.entries()].sort((a, b) => b[1] - a[1]).map(([name, count]) => `- ${name}: ${fmt.format(count)}`),
     '',
     'รายการ',
@@ -291,7 +304,7 @@ function resetPageFiltersFor(page) {
     clearDashboardOnlyFilters();
     $('bag-reset-btn')?.click();
     document.querySelector('.smart-filter[data-risk="all"]')?.click();
-  } else if (page === 'parcels') {
+  } else if (page === 'parcels' || page === 'status' || page === 'weight') {
     $('bag-reset-btn')?.click();
     document.querySelector('.smart-filter[data-risk="all"]')?.click();
   } else if (page === 'backlog') {
@@ -304,7 +317,7 @@ function resetPageFiltersFor(page) {
 function moveResults(page) {
   const panel = $('results-panel');
   if (!panel) return;
-  const slot = page === 'backlog' ? $('backlog-results-slot') : page === 'bagging' ? $('bagging-results-slot') : $('parcels-results-slot');
+  const slot = page === 'backlog' ? $('backlog-results-slot') : page === 'parcels' ? $('parcels-results-slot') : null;
   if (slot && panel.parentElement !== slot) slot.appendChild(panel);
 }
 
@@ -318,7 +331,7 @@ function setPage(nextPage, { updateHash = true, resetFilters = true } = {}) {
   document.querySelectorAll('[data-page-nav]').forEach((button) => {
     button.classList.toggle('active', button.dataset.pageNav === page);
   });
-  if (page !== 'dashboard') moveResults(page);
+  moveResults(page);
   if (updateHash && location.hash !== `#${page}`) history.replaceState(null, '', `#${page}`);
   applySelectedTimeFilter();
   renderDashboard();
@@ -374,8 +387,11 @@ function bindEvents() {
     renderDashboard();
   });
 
-  for (const id of ['hub-filter', 'branch-filter']) {
-    $(id)?.addEventListener('change', scheduleDashboardRender);
+  for (const id of ['hub-filter', 'branch-filter', 'ops-action-filter']) {
+    $(id)?.addEventListener('change', () => {
+      scheduleDashboardRender();
+      applySelectedTimeFilter();
+    });
   }
 }
 
