@@ -1,5 +1,5 @@
-import {supabase as client} from './auth-client.js?v=20260906-adaptive-scan-v1';
-import {snapshotValid} from './data-model.js?v=20260906-adaptive-scan-v1';
+import {supabase as client} from './auth-client.js?v=20260906-total-hint-v1';
+import {snapshotValid} from './data-model.js?v=20260906-total-hint-v1';
 let rows=[],loadedId='',pending=null,generation=0,loaded=false;
 const id=()=>Number(document.getElementById('branch-select')?.value||0);
 function decode(r){
