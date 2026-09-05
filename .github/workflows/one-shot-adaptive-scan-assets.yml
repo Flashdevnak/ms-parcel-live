@@ -1,0 +1,59 @@
+name: One-shot adaptive scan asset finalizer
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one-shot-adaptive-scan-assets.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Force adaptive scan asset version
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          old='20260906-manager-full-v2'
+          new='20260906-adaptive-scan-v1'
+          files=['index.html','app.js','ops.js','analytics-client.js','snapshot-client.js']
+          for name in files:
+              p=Path(name)
+              text=p.read_text(encoding='utf-8')
+              if old in text:
+                  p.write_text(text.replace(old,new),encoding='utf-8')
+          PY
+      - name: Validate frontend
+        run: |
+          node --check app.js
+          node --check inspector.js
+          node --check analytics-client.js
+          node --check snapshot-client.js
+          node --check ops.js
+          node --check shell.js
+          node --check data-model.js
+          node --check auth-client.js
+          node tests-data.mjs
+      - name: Validate workspace UI
+        run: |
+          npm install --prefix /tmp/ms-parcel-ui-test --no-package-lock --no-save jsdom@26.1.0
+          NODE_PATH=/tmp/ms-parcel-ui-test/node_modules node tests-ui.mjs
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Validate Edge
+        run: deno check supabase/functions/ms-parcel-api/index.ts
+      - name: Commit final assets
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html app.js ops.js analytics-client.js snapshot-client.js
+          git commit -m 'release: activate adaptive analytics scan assets'
+          git push
