@@ -51,8 +51,9 @@ jobs:
         run: deno check supabase/functions/ms-parcel-api/index.ts
       - name: Commit validated patch
         run: |
+          git checkout -- .github/workflows/pages.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add app.js ops.js data-model.js analytics-client.js dropdowns.js ops.css index.html README.md tests-data.mjs tests-ui.mjs .github/workflows/pages.yml supabase/functions/ms-parcel-api/analytics.ts supabase/functions/ms-parcel-api/index.ts
+          git add app.js ops.js data-model.js analytics-client.js dropdowns.js ops.css index.html README.md tests-data.mjs tests-ui.mjs supabase/functions/ms-parcel-api/analytics.ts supabase/functions/ms-parcel-api/index.ts
           git commit -m 'fix: operational pages dropdowns copy and latest-action SLA'
           git push
