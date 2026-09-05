@@ -1,10 +1,6 @@
 name: Activate Supabase v13
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/supabase-v13.yml'
   workflow_dispatch:
 
 permissions:
