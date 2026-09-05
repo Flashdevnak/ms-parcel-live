@@ -18,7 +18,7 @@ export async function load(){
   if(!res.ok)throw new Error('อ่านภาพรวมไม่ได้');
   const cached=(await res.json())[0];if(seq!==generation)return;
   if(cached?.payload)publish(cached.payload,cached.expires_at);
-  if(cached?.payload?.schemaVersion===3&&Date.parse(cached.expires_at)>Date.now()){
+  if(cached?.payload?.schemaVersion===4&&Date.parse(cached.expires_at)>Date.now()){
    emit(cached.payload.complete?'ready':'incomplete',{expiresAt:cached.expires_at});schedule(Math.max(15000,Date.parse(cached.expires_at)-Date.now()+1000));return;
   }
   emit('loading');
