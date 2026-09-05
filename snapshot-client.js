@@ -12,6 +12,7 @@ let loadingPromise = null;
 
 function branchId() { return Number(document.getElementById('branch-select')?.value || 0); }
 function analytics() { return window.__MS_FULL_ANALYTICS || null; }
+function snapshotPrefix(id, snapshotId) { return `b:${id}:snapshot:${snapshotId}:p:`; }
 function decode(r) {
   return {
     pno:r?.[0]||'', state_name:r?.[1]||'', store_weight:r?.[2]||'', plan_leave_time:r?.[3]||'', real_arrive_time:r?.[4]||'',
@@ -30,27 +31,39 @@ async function ensureLoaded() {
   const a = analytics();
   const id = branchId();
   const snapshotId = String(a?.snapshotId || '');
-  if (!a?.complete || !snapshotId || !id) return [];
+  if (!a?.complete || a?.snapshotStore !== 'live_cache_pages' || !snapshotId || !id) return [];
   if (loadedSnapshotId === snapshotId && rows.length) return rows;
   if (loadingPromise) return loadingPromise;
 
   loadingPromise = (async () => {
     const { data: sessionData } = await client.auth.getSession();
     if (!sessionData?.session) return [];
-    const { data, error } = await client.from('full_snapshot_pages')
-      .select('page_no,payload,item_count')
+    const prefix = snapshotPrefix(id, snapshotId);
+    const { data, error } = await client.from('live_cache_pages')
+      .select('cache_key,payload,item_count,source_total,expires_at')
       .eq('branch_id', id)
-      .eq('snapshot_id', snapshotId)
-      .order('page_no', { ascending: true });
+      .like('cache_key', `${prefix}%`)
+      .gt('expires_at', new Date().toISOString())
+      .order('cache_key', { ascending: true });
     if (error || !Array.isArray(data) || !data.length) return [];
+
+    const expectedPages = Number(a.snapshotPages || 0);
+    if (expectedPages && data.length !== expectedPages) return [];
+
     const next = [];
     for (const page of data) {
-      for (const compact of (Array.isArray(page.payload) ? page.payload : [])) next.push(decode(compact));
+      const compactRows = Array.isArray(page.payload) ? page.payload : [];
+      if (Number(page.item_count || 0) !== compactRows.length) return [];
+      for (const compact of compactRows) next.push(decode(compact));
     }
+
+    const expectedTotal = Number(a.total || 0);
+    if (expectedTotal && next.length !== expectedTotal) return [];
+
     loadedSnapshotId = snapshotId;
     rows = next;
     window.__MS_FULL_ROWS = rows;
-    window.dispatchEvent(new CustomEvent('ms-full-rows', { detail: { rows, snapshotId, total: Number(a.total || rows.length) } }));
+    window.dispatchEvent(new CustomEvent('ms-full-rows', { detail: { rows, snapshotId, total: expectedTotal || rows.length } }));
     return rows;
   })().catch(() => []).finally(() => { loadingPromise = null; });
 
