@@ -16,6 +16,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Align patch script with current anchored tests
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('tools/patch-v20.py')
+          s=p.read_text(encoding='utf-8')
+          s=s.replace("import {band,route,validAnalytics,rowMatch,managerValue,bags,snapshotValid} from './data-model.js';", "import {band,route,validAnalytics,rowMatch,managerValue,bags,snapshotValid,decodeSnapshotRow} from './data-model.js';")
+          s=s.replace("import {band,route,validAnalytics,rowMatch,rowCell,managerValue,bags,snapshotValid} from './data-model.js';", "import {band,route,validAnalytics,rowMatch,rowCell,managerValue,bags,snapshotValid,decodeSnapshotRow} from './data-model.js';")
+          p.write_text(s,encoding='utf-8')
+          PY
       - name: Apply patch
         run: python tools/patch-v20.py
       - name: Validate frontend and data
