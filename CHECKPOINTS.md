@@ -123,3 +123,11 @@
 - CP-v13-12 NOT PASS: authenticated baseline cache at 2026-09-05 20:03:12 UTC has scanned=67560,total=68065,snapshotId=null. Owner logged in. New backend diagnostics must establish source consistency; never relabel a partial inventory as complete.
 - CP-v13-13 NOT PASS: previous Pages deployment succeeded; final full-data gate remains tied to CP-v13-12.
 - No new migrations, cron, tables, RLS edits or SECURITY DEFINER. Original live TTL logic and summary polling retained.
+
+### Verified production diagnosis
+- Pages run 33989175816 SUCCESS at cf97a309aa8274bd55cc921f9d15a63752d13b59. Deno and UI tests both passed.
+- Edge v14 ACTIVE verified, custom authentication retained. Owner authenticated browser is online.
+- New scanner evidence (2026-09-05 20:11:41 UTC): total=66013, scanned=65846, reason=source_changed, requests=28 (two attempts inside 30-request budget).
+- Source totals during final attempt: 66013,65984,65981,65981,65955,65955,65955,65912,65912,65912,65873,65873,65873,65848.
+- Page counts: 4998,5000,5000,5000,5000,5000,5000,5000,5000,5000,5000,5000,5000,848. MS pagination is changing during collection; observed first-page length must not be mistaken for accepted page-size cap.
+- Follow-up preserves labelled partial aggregate views (no partial snapshot/copy) while requiring exact full-data verification for PASS. Shared browser auth client removes multiple GoTrueClient instances.

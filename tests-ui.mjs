@@ -28,5 +28,5 @@ nav('bagging');await new Promise(r=>setTimeout(r,0));flush();assert.match(w.docu
 await vm.runInContext("copy('bags')",dom.getInternalVMContext());assert.match(clipboard,/P001/);assert.match(clipboard,/P002/);
 nav('backlog');await new Promise(r=>setTimeout(r,0));w.document.querySelector('[data-work-risk="over48"]').click();flush();assert.equal(w.document.querySelectorAll('#work-backlog .parcel-row').length,1);
 await vm.runInContext("copy('list')",dom.getInternalVMContext());assert.doesNotMatch(clipboard,/P002/);
-emit('ms-session-reset');flush();assert.match(w.document.querySelector('#work-backlog').textContent,/รอภาพรวม/);assert.equal(w.document.querySelector('#parcel-detail').textContent,'');
+emit('ms-full-analytics',{...a,complete:false,total:3,scanned:2,snapshotId:null});flush();nav('dashboard');assert.match(w.document.querySelector('#work-dashboard').textContent,/ข้อมูลบางส่วน/);const beforeCopy=clipboard;await vm.runInContext("copy('dashboard')",dom.getInternalVMContext());assert.equal(clipboard,beforeCopy);nav('backlog');emit('ms-session-reset');flush();assert.match(w.document.querySelector('#work-backlog').textContent,/รอภาพรวม/);assert.equal(w.document.querySelector('#parcel-detail').textContent,'');
 console.log('PASS: six views, no partial fallback, manager scope, FD/LH charts and weights, mixed bag, details, copy and logout clearing');

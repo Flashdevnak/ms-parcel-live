@@ -32,6 +32,7 @@ jobs:
           node --check ops.js
           node --check shell.js
           node --check data-model.js
+          node --check auth-client.js
           node tests-data.mjs
       - name: Setup Deno
         uses: denoland/setup-deno@v2

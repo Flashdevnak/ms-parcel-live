@@ -1,4 +1,4 @@
-import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm';
+import {supabase} from './auth-client.js?v=20260906-workspace-2';
 
 const CONFIG = {
   supabaseUrl: 'https://afhnfnfbqdqqzrghovfc.supabase.co',
@@ -6,9 +6,6 @@ const CONFIG = {
   functionBase: 'https://afhnfnfbqdqqzrghovfc.supabase.co/functions/v1/ms-parcel-api',
 };
 
-const supabase = createClient(CONFIG.supabaseUrl, CONFIG.publishableKey, {
-  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
-});
 
 const $ = (id) => document.getElementById(id);
 const fmt = new Intl.NumberFormat('th-TH');

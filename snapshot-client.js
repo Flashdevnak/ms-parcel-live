@@ -1,6 +1,5 @@
-import {createClient} from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm';
-import {snapshotValid} from './data-model.js?v=20260906-workspace-1';
-const client=createClient('https://afhnfnfbqdqqzrghovfc.supabase.co','sb_publishable_4GStzbYK3_BhthidusT_hw_DqtzC7qE',{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false}});
+import {supabase as client} from './auth-client.js?v=20260906-workspace-2';
+import {snapshotValid} from './data-model.js?v=20260906-workspace-2';
 let rows=[],loadedId='',pending=null,generation=0,loaded=false;
 const id=()=>Number(document.getElementById('branch-select')?.value||0);
 const decode=r=>Object.fromEntries(['pno','state_name','store_weight','plan_leave_time','real_arrive_time','pack_num','LastAction_name','LastActionTime','staff_info_phone','store_manager_phone','dst_hub_name','dst_store_name'].map((k,i)=>[k,r[i]??'']));
