@@ -2,8 +2,8 @@ import { db } from './core.ts';
 import { fetchLivePage } from './ms.ts';
 import { collectSnapshot } from './scan.js';
 
-const DEFAULT_PAGE_SIZE = 5000;
-const MAX_PAGES = 30;
+const DEFAULT_PAGE_SIZE = 10000;
+const SNAPSHOT_PAGE_SIZE = 5000;
 const SNAPSHOT_TTL_MS = 30 * 60_000;
 const SNAPSHOT_WRITE_BATCH = 3;
 const BANDS = ['under3','3to6','6to9','9to12','12to16','16to22','22to24','24to48','over48','unknown'];
@@ -63,14 +63,15 @@ export async function buildFullAnalytics(conn:any,branch:any,requestedPageSize=D
   const collected:any=await collectSnapshot((p:number,size:number)=>fetchLivePage(conn,p,size),pageSize);
   const {rowPages,...scan}=collected;
   const {total,pages}=scan;
-  if(!rowPages?.length)return {...scan,branchId,snapshotStore:null,snapshotId:null,snapshotPages:0,snapshotExpiresAt:null,updatedAt:new Date().toISOString(),schemaVersion:4};
+  if(!rowPages?.length)return {...scan,branchId,snapshotStore:null,snapshotId:null,snapshotPages:0,snapshotExpiresAt:null,updatedAt:new Date().toISOString(),schemaVersion:5};
 
   const now=Date.now(),sourceAt=new Date(now).toISOString(),snapshotId=crypto.randomUUID(),expiresAt=new Date(now+SNAPSHOT_TTL_MS).toISOString();
   const isOwnHub=ownHubMatcher(branch),fd=new Map<string,any>(),lh=new Map<string,any>(),actions=new Map<string,number>(),parcelStates=new Map<string,number>(),managerPhones=new Map<string,number>(),bags=new Set<string>(),cells=new Map<string,any>(),bandTotals:Record<string,number>=Object.fromEntries(BANDS.map((b)=>[b,0])),snapshotPages:any[]=[];
   let scanned=0,totalWeightKg=0,baggedParcels=0,overdueTotal=0,criticalTotal=0;
 
   const consume=(rows:any[])=>{
-    snapshotPages.push(rows.map(snapshotRow));
+    const compact=rows.map(snapshotRow);
+    for(let i=0;i<compact.length;i+=SNAPSHOT_PAGE_SIZE)snapshotPages.push(compact.slice(i,i+SNAPSHOT_PAGE_SIZE));
     for(const row of rows){
       scanned+=1;
       const kg=weightKg(row?.store_weight),band=bandOf(row?.real_arrive_time,now),action=String(row?.LastAction_name||'-').trim()||'-',manager=String(row?.store_manager_display||row?.store_manager_phone||'-').trim()||'-',plan=parseTime(row?.plan_leave_time),overdue=Number.isFinite(plan)&&now>plan,critical=overdue&&band==='over48';
@@ -87,7 +88,7 @@ export async function buildFullAnalytics(conn:any,branch:any,requestedPageSize=D
   const complete=scan.complete&&scanned===total;
   const snapshotAvailable=complete&&branchId>0?await persistSnapshot(branchId,snapshotId,snapshotPages,total,sourceAt,expiresAt):false;
   return{
-    ...scan,complete:complete&&snapshotAvailable,reason:!complete?scan.reason:snapshotAvailable?null:'snapshot_write_failed',schemaVersion:4,total,scanned,pages,snapshotStore:snapshotAvailable?'live_cache_pages':null,snapshotId:snapshotAvailable?snapshotId:null,snapshotPages:snapshotAvailable?snapshotPages.length:0,snapshotExpiresAt:snapshotAvailable?expiresAt:null,
+    ...scan,complete:complete&&snapshotAvailable,reason:!complete?scan.reason:snapshotAvailable?null:'snapshot_write_failed',schemaVersion:5,total,scanned,pages,snapshotStore:snapshotAvailable?'live_cache_pages':null,snapshotId:snapshotAvailable?snapshotId:null,snapshotPages:snapshotAvailable?snapshotPages.length:0,snapshotExpiresAt:snapshotAvailable?expiresAt:null,
     totalWeightKg:Math.round(totalWeightKg*1000)/1000,avgWeightKg:scanned?Math.round((totalWeightKg/scanned)*1000)/1000:0,baggedParcels,uniqueBags:bags.size,overdueTotal,criticalTotal,bandTotals,
     fd:sortedGroups(fd),lh:sortedGroups(lh),actions:sortedCounts(actions),parcelStates:sortedCounts(parcelStates),managerPhones:sortedCounts(managerPhones),cells:[...cells.values()].map((x)=>({...x,w:Math.round(x.w*1000)/1000})),updatedAt:sourceAt
   };
