@@ -17,8 +17,9 @@ export async function load(){
   const res=await fetch(`${URL}/rest/v1/summary_cache?branch_id=eq.${branch}&cache_key=eq.b:${branch}:summary:full-analytics-v1&select=payload,expires_at&limit=1`,{headers,cache:'no-store'});
   if(!res.ok)throw new Error('อ่านภาพรวมไม่ได้');
   const cached=(await res.json())[0];if(seq!==generation)return;
-  if(cached?.payload)publish(cached.payload,cached.expires_at);
-  if(cached?.payload?.schemaVersion===4&&Date.parse(cached.expires_at)>Date.now()){
+  const compatible=cached?.payload?.schemaVersion===4;
+  if(compatible)publish(cached.payload,cached.expires_at);
+  if(compatible&&Date.parse(cached.expires_at)>Date.now()){
    emit(cached.payload.complete?'ready':'incomplete',{expiresAt:cached.expires_at});schedule(Math.max(15000,Date.parse(cached.expires_at)-Date.now()+1000));return;
   }
   emit('loading');
