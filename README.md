@@ -5,7 +5,7 @@
 ## Architecture
 - Frontend: GitHub Pages
 - Auth: Supabase Auth
-- Backend: Supabase Edge Function `ms-parcel-api` v8
+- Backend: Supabase Edge Function `ms-parcel-api` v9
 - Source: `fbi.flashexpress.com/api/dc/unfinished_parcel_list`
 - Summary: `fbi.flashexpress.com/api/dc/dc_delivery_transfer_list`
 - หลายสาขาใน Supabase project เดียว โดยแต่ละสาขามี MS/HAR/cache แยกกัน
@@ -41,6 +41,19 @@
 - Browser อ่าน delta ก่อนและขอ full payload เฉพาะครั้งแรกหรือ hash chain ต่อไม่ได้
 - ถ้าไม่เปลี่ยน Edge ตอบ not-modified; ถ้าเปลี่ยนต่อเนื่องส่งเฉพาะ delta เมื่อทำได้
 
+## Smart Backlog Monitor — zero extra quota
+Smart Monitor เป็น derived UI ทั้งหมดและต้องไม่เพิ่ม MS request, Edge invocation, database polling หรือ cron เพิ่มจาก cadence เดิม
+
+- เวลาค้างคำนวณจาก `real_arrive_time` ที่มีอยู่ใน live row
+- แบ่ง `<24 ชม.`, `24–48 ชม.`, `>48 ชม.`
+- `ตกรอบรถ` = `plan_leave_time` ผ่านแล้ว แต่พัสดุยังอยู่ใน unfinished list
+- `ใกล้ตกรอบ` = เหลือเวลาไม่เกิน 60 นาทีถึง `plan_leave_time`
+- ถ้าไม่มี `real_arrive_time` ให้แสดงอายุไม่ทราบ ห้ามเดา timestamp
+- Quick Filter และจำนวนความเสี่ยงคำนวณจาก rows ที่โหลดอยู่ในหน้าปัจจุบันเท่านั้น
+- `เสี่ยงสุดก่อน` เป็น client-side sort
+- `คัดลอกรายการที่กรอง` ใช้ Clipboard API และไม่ส่งข้อมูลออกไป backend เพิ่ม
+- การวิเคราะห์ทั้งหมด reuse payload/cache ที่ frontend ได้รับอยู่แล้ว จึงมี zero incremental backend quota
+
 ## Silent refresh UX
 - ไม่มี overlay / ข้อความ `กำลังโหลดข้อมูล MS...` ทุก polling รอบ
 - ตารางเดิมค้างอยู่ระหว่าง refresh หลังบ้าน
@@ -48,7 +61,7 @@
 
 ## Security
 - Public Edge route มีเฉพาะ `/login`
-- Route ที่มีข้อมูลตรวจ Bearer token กับ Supabase Auth `/auth/v1/user` จริงก่อนใช้งาน เพราะ Edge v8 ใช้ custom authentication เพื่อรองรับ Username login
+- Route ที่มีข้อมูลตรวจ Bearer token กับ Supabase Auth `/auth/v1/user` จริงก่อนใช้งาน เพราะ Edge ใช้ custom authentication เพื่อรองรับ Username login
 - MS credential/session เข้ารหัส AES-GCM ก่อนเก็บใน `ms_connection`
 - frontend ไม่มีสิทธิ์อ่าน credential และไม่เคยรับ raw MS auth/session
 - HAR upload ตรวจ role + branch permission ฝั่ง Edge
@@ -58,7 +71,7 @@
 ## Supabase
 Project ref: `afhnfnfbqdqqzrghovfc`
 Region: `ap-southeast-1`
-Function: `ms-parcel-api` v8
+Function: `ms-parcel-api` v9
 
 ## Security Advisor note
 Supabase Free อาจแสดง `Leaked Password Protection Disabled`; เป็น warning ของ Auth เพิ่มเติมและไม่ได้ทำให้ระบบ Login/MS Live ใช้งานไม่ได้ จึงยังคงสถาปัตยกรรม Free ตามข้อกำหนดของโปรเจกต์
