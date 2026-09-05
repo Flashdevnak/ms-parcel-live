@@ -114,20 +114,20 @@ function smartMatch(risk, filter = state.smartFilter) {
 
 function smartFilterLabel() {
   return ({
-    all: 'ทั้งหมดในหน้า',
+    all: 'ทั้งหมด',
     under24: 'ค้าง <24 ชม.',
     '24to48': 'ค้าง 24–48 ชม.',
     over48: 'ค้าง >48 ชม.',
-    missed: 'ตกรอบรถ',
-    dueSoon: 'ใกล้ตกรอบ ≤60 นาที',
-  })[state.smartFilter] || 'ทั้งหมดในหน้า';
+    missed: 'เกินเวลาแผน',
+    dueSoon: 'ใกล้เวลาแผน ≤60 นาที',
+  })[state.smartFilter] || 'ทั้งหมด';
 }
 
 function riskText(risk) {
   const parts = [];
   if (risk.ageHours === null) parts.push('อายุไม่ทราบ');
   else parts.push(`ค้าง ${formatMinutes(risk.ageHours * 60)}`);
-  if (risk.missed) parts.push(`ตกรอบ ${formatMinutes(risk.overdueMinutes)}`);
+  if (risk.missed) parts.push(`เกินเวลาแผน ${formatMinutes(risk.overdueMinutes)}`);
   else if (risk.dueSoon) parts.push(`เหลือ ${formatMinutes(risk.dueMinutes)}`);
   return parts.join(' · ');
 }
@@ -169,7 +169,7 @@ function renderSmartMonitor(now = Date.now()) {
   });
   $('risk-sort').checked = state.sortRisk;
   const unknownText = counts.unknown ? ` · อายุไม่ทราบ ${fmt.format(counts.unknown)}` : '';
-  $('smart-note').textContent = `คำนวณจาก ${fmt.format(state.rows.length)} รายการในหน้าปัจจุบัน${unknownText} · เวลาค้างนับจาก “เวลาถึงตามจริง” · ไม่ใช้โควต้าเพิ่ม`;
+  $('smart-note').textContent = `รายการสด ${fmt.format(state.rows.length)}${unknownText}`;
 }
 
 async function copyFilteredRows() {
