@@ -27,6 +27,7 @@ jobs:
         run: |
           node --check app.js
           node --check inspector.js
+          node --check shell.js
       - name: Configure Pages
         uses: actions/configure-pages@v5
         with:
