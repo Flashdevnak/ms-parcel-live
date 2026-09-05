@@ -1,0 +1,15 @@
+.persistent-select{position:relative;min-width:0;width:100%}
+.persistent-native{position:absolute!important;opacity:0!important;pointer-events:none!important;width:1px!important;height:1px!important;overflow:hidden!important}
+.persistent-select-trigger{width:100%;min-height:44px;padding:8px 38px 8px 12px;border:1px solid #b7c6d4;border-radius:8px;background:#fff;color:#152334;text-align:left;position:relative;display:flex;align-items:flex-start;justify-content:space-between;gap:10px;white-space:normal!important;overflow:visible!important;text-overflow:clip!important;line-height:1.35;overflow-wrap:anywhere;word-break:break-word}
+.persistent-select-trigger>span{display:block;min-width:0;white-space:normal!important;overflow:visible!important;text-overflow:clip!important;overflow-wrap:anywhere;word-break:break-word}
+.persistent-select-trigger>i{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-style:normal;flex:0 0 auto}
+.persistent-select-panel{position:fixed;display:none;z-index:10050;background:#fff;border:1px solid #aebdca;border-radius:10px;box-shadow:0 14px 36px rgba(21,35,52,.2);overflow:hidden}
+.persistent-select.open .persistent-select-panel{display:flex;flex-direction:column}
+.persistent-select-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border-bottom:1px solid #d9e2ea;background:#f5f8fb;flex:0 0 auto}
+.persistent-select-close{min-height:36px;padding:6px 12px;border:1px solid #b7c6d4;border-radius:7px;background:#fff}
+.persistent-select-options{overflow:auto;overscroll-behavior:contain;padding:4px;min-height:0}
+.persistent-select-option{display:block;width:100%;min-height:38px;padding:8px 10px;border:0;border-radius:6px;background:#fff;color:#152334;text-align:left;white-space:normal!important;overflow:visible!important;text-overflow:clip!important;overflow-wrap:anywhere;word-break:break-word;line-height:1.4}
+.persistent-select-option:hover,.persistent-select-option[aria-selected="true"]{background:#eaf2ff}
+.global-destination-grid label,.work-search label,.work-actions{min-width:0}
+.global-destination-grid .persistent-select,.work-search .persistent-select,.work-actions .persistent-select,.branch-select-wrap .persistent-select{width:100%}
+@media(max-width:640px){.persistent-select-panel{max-width:calc(100vw - 24px)!important}.persistent-select-trigger{font-size:14px}}
