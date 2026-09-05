@@ -1,11 +1,21 @@
 import { db, decryptCredential, encryptCredential, hashPage, json } from './core.ts';
 
+function text(value:unknown){return String(value??'').trim();}
+export function managerDisplay(r:any){
+  const managerName=text(r?.store_manager_name),managerPhone=text(r?.store_manager_phone);
+  if(!managerName&&!managerPhone)return null;
+  const storeId=text(r?.store_id),storeName=text(r?.store_name),storeLabel=`${storeId?`(${storeId})`:''}${storeName}`.trim();
+  return [storeLabel,managerName,managerPhone].filter(Boolean).join(' · ')||null;
+}
+
 export function slimRow(r: any) {
   return {
     pno:r?.pno??null,state_name:r?.state_name??null,cod_amount:r?.cod_amount??null,store_weight:r?.store_weight??null,
     plan_leave_time:r?.plan_leave_time??null,real_arrive_time:r?.real_arrive_time??null,pack_num:r?.pack_num??null,
     marker_category_name:r?.marker_category_name??null,LastAction_name:r?.LastAction_name??null,LastActionTime:r?.LastActionTime??null,
-    staff_info_name:r?.staff_info_name??null,staff_info_phone:r?.staff_info_phone??null,store_manager_phone:r?.store_manager_phone??null,
+    staff_info_name:r?.staff_info_name??null,staff_info_phone:r?.staff_info_phone??null,
+    store_id:r?.store_id??null,store_name:r?.store_name??null,store_manager_name:r?.store_manager_name??null,
+    store_manager_phone:r?.store_manager_phone??null,store_manager_display:managerDisplay(r),
     dst_hub_name:r?.dst_hub_name??null,dst_store_name:r?.dst_store_name??null,dst_province_name:r?.dst_province_name??null,
     dst_city_name:r?.dst_city_name??null,dst_postal_code:r?.dst_postal_code??null,ka_id:r?.ka_id??null,ka_name:r?.ka_name??null,
     customer_type_category:r?.customer_type_category??null,
