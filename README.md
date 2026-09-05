@@ -7,15 +7,17 @@
 - Supabase project: `afhnfnfbqdqqzrghovfc`
 - Region: `ap-southeast-1`
 - Edge Function: `ms-parcel-api`
-- Production Edge ที่ยืนยันล่าสุด: v12
-- v13 source: deploy-ready; ต้อง deploy Edge และผ่าน live verification ก่อน force frontend cutover
+- Production Edge ที่ยืนยันล่าสุด: v16
+- `verify_jwt=false` โดยตั้งใจ เพราะ Edge ตรวจ Bearer token เองผ่าน Supabase Auth `/auth/v1/user`
 
 ## Data source
 - Detail: `fbi.flashexpress.com/api/dc/unfinished_parcel_list`
 - Summary: `fbi.flashexpress.com/api/dc/dc_delivery_transfer_list`
 - `dst_hub_name` = LH ปลายทาง
 - `dst_store_name` = FD ปลายทาง
-- `store_manager_phone` = หมายเลขโทรศัพท์ผู้จัดการสาขาที่ดำเนินการครั้งสุดท้าย
+- ข้อมูล `ผู้จัดการสาขา` ใช้ข้อมูลจริงครบจาก source row: `store_id` + `store_name` + `store_manager_name` + `store_manager_phone`
+- รูปแบบแสดงผล: `(Store ID)ชื่อสาขา · ชื่อผู้จัดการ · เบอร์โทร`
+- ถ้า source ไม่มีชื่อ/เบอร์ผู้จัดการ จะถือเป็น `ไม่ระบุ` แทนการสร้างตัวตนจาก Store ID อย่างเดียว
 - HAR/session ของแต่ละสาขาแยกกันและเข้ารหัสก่อนเก็บ
 
 ## Views
@@ -60,12 +62,12 @@
 - LH ปลายทาง
 - FD ปลายทาง
 - การดำเนินการล่าสุด
-- เบอร์ผู้จัดการสาขาที่ดำเนินการครั้งสุดท้าย
+- ผู้จัดการสาขาแบบเต็ม `(Store ID)ชื่อสาขา · ชื่อผู้จัดการ · เบอร์โทร`
 
 กติกา:
 - LH ไม่รวม HUB ต้นทางที่กำลังเลือก
 - FD คือสาขาปลายทางภายใต้ HUB ต้นทางที่เลือก
-- ชื่อที่มี `(xxx)` / `（xxx）` ด้านหน้าตัด prefix เฉพาะตอนแสดงผล
+- ชื่อที่มี `(xxx)` / `（xxx）` ด้านหน้าตัด prefix เฉพาะตอนแสดงผลของปลายทาง; identity ผู้จัดการเก็บ Store ID ไว้เพื่อไม่รวมคน/สาขาผิดกลุ่ม
 - เลือกช่วงเวลาครบทั้ง 9 ช่วงถือเป็น `ทั้งหมด`; รายการที่ไม่มีเวลาถึงจริงอยู่ในกลุ่มอายุไม่ทราบ
 
 ## Live cache
@@ -77,22 +79,25 @@
 - ใช้ `content_hash`, `previous_hash`, `delta_payload`
 - Browser อ่าน cache ก่อน แล้วมี browser เดียวที่ได้ atomic lease ไป refresh Edge/MS ต่อหนึ่ง branch/page key
 
-## Full Analytics v13
+## Full Analytics
 เป้าหมายคือให้ Dashboard / Status / Weight / Bagging ใช้ยอดทั้งสาขาโดยไม่ไล่ MS ทีละ 100 แถวหลายร้อยหน้า
 
 - ขอ MS ด้วย `page_size=5000` ก่อน
 - ใช้จำนวนรายการที่ MS ส่งกลับจริงเป็น accepted source page size
 - hard limit สูงสุด 30 MS source requests ต่อ Full Snapshot
 - ถ้า MS cap จนต้องเกิน 30 หน้า ระบบหยุดและคืนสถานะ incomplete; ห้าม fallback ไปประมาณ 900 requests
+- ถ้า `total` ของ MS เปลี่ยนระหว่าง scan จะคืน `source_changed` และไม่สร้าง partial snapshot
 - Full Analytics ที่ครบ cache 30 นาที
 - probe/incomplete cache 5 นาที
 - หลาย browser ใช้ shared leader lease เดียวกัน
+- Analytics schema v4 ใช้ full manager identity แทนการ aggregate เฉพาะเบอร์โทร
 
 ### Full-detail snapshot
 - ไม่สร้างตาราง DB ใหม่
 - reuse `live_cache_pages` ที่มี branch-aware RLS อยู่แล้ว
 - cache key: `b:<branch>:snapshot:<snapshot-id>:p:<page>`
 - เก็บเฉพาะ compact fields ที่หน้าเว็บใช้
+- manager field ใน snapshot เก็บ full manager identity เพื่อให้ตัวกรอง/รายละเอียดตรงกับ aggregate
 - เขียน cache เป็น batch ละ 3 หน้า
 - ถ้าเขียน snapshot ไม่ครบ จะลบ partial snapshot ชุดนั้น
 - browser โหลด raw Full Snapshot แบบ on-demand เฉพาะเมื่อต้องใช้เลขพัสดุ เช่น รายการเต็ม / Status detail / SLA / Bagging / Copy
@@ -106,7 +111,7 @@
 - hard cap 30 source requests ต่อ snapshot
 - หลายเครื่องแชร์ cache/lease
 - switching page, filtering, chart rendering, sorting และ grouping ทำใน browser
-- raw 90k snapshot โหลดเฉพาะตอนต้องใช้รายละเอียดจริง
+- raw full snapshot โหลดเฉพาะตอนต้องใช้รายละเอียดจริง
 
 ## Export fallback research
 HAR ยืนยันว่า `unfinished_parcel_list?export=1` สร้างงานดาวน์โหลดแบบ async และ MS รุ่นใหม่มี Download Center task APIs แต่ HAR ปัจจุบันยังไม่มี payload/auth ของขั้น query/download ครบ จึงยังไม่ใช้เป็น production fallback จนกว่าจะยืนยัน flow จริงได้
@@ -136,9 +141,11 @@ GitHub Pages workflow ตรวจทุก commit:
 - `node --check snapshot-client.js`
 - `node --check ops.js`
 - `node --check shell.js`
+- `node --check data-model.js`
+- `node --check auth-client.js`
+- `node tests-data.mjs`
+- `node tests-ui.mjs` (ผ่าน jsdom)
 - `deno check supabase/functions/ms-parcel-api/index.ts`
-
-Supabase v13 activation workflow เป็น manual-only และต้องมี Supabase management token ใน GitHub Actions จึง deploy Edge ได้
 
 ## Repository boundary
 - ใช้เฉพาะ `Flashdevnak/ms-parcel-live`
