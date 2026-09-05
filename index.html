@@ -11,172 +11,54 @@
   <link rel="stylesheet" href="shell.css?v=20260905-3" />
   <script type="module" src="app.js?v=20260905-3"></script>
   <script type="module" src="inspector.js?v=20260905-1"></script>
-  <script type="module" src="shell.js?v=20260905-3"></script>
+  <script type="module" src="shell.js?v=20260905-4"></script>
 </head>
 <body>
   <header class="site-header">
     <div class="site-header-inner">
-      <div class="header-brand">
-        <div class="brand-mark">F</div>
-        <div class="brand-copy"><strong>MS Parcel Live</strong><span id="live-clock">--:--:--</span></div>
-      </div>
-      <div class="topbar-actions">
-        <span id="connection-badge" class="badge badge-neutral">ยังไม่ได้เข้าสู่ระบบ</span>
-        <button id="manage-users-btn" class="btn btn-header hidden" type="button">ผู้ใช้</button>
-        <button id="manage-branches-btn" class="btn btn-header hidden" type="button">สาขา</button>
-        <button id="upload-har-btn" class="btn btn-header hidden" type="button">HAR</button>
-        <button id="refresh-btn" class="btn btn-header hidden" type="button">รีเฟรช</button>
-        <button id="logout-btn" class="btn btn-header hidden" type="button">ออก</button>
-      </div>
+      <div class="header-brand"><div class="brand-mark">F</div><div class="brand-copy"><strong>MS Parcel Live</strong><span id="live-clock">--:--:--</span></div></div>
+      <div class="topbar-actions"><span id="connection-badge" class="badge badge-neutral">ยังไม่ได้เข้าสู่ระบบ</span><button id="manage-users-btn" class="btn btn-header hidden" type="button">ผู้ใช้</button><button id="manage-branches-btn" class="btn btn-header hidden" type="button">สาขา</button><button id="upload-har-btn" class="btn btn-header hidden" type="button">HAR</button><button id="refresh-btn" class="btn btn-header hidden" type="button">รีเฟรช</button><button id="logout-btn" class="btn btn-header hidden" type="button">ออก</button></div>
     </div>
   </header>
 
-  <nav class="app-nav" aria-label="เมนูหลัก">
-    <div class="app-nav-inner">
-      <button class="app-nav-btn active" type="button" data-page-nav="dashboard">แดชบอร์ด</button>
-      <button class="app-nav-btn" type="button" data-page-nav="parcels">พัสดุคงคลัง</button>
-      <button class="app-nav-btn" type="button" data-page-nav="backlog">SLA &amp; Backlog</button>
-      <button class="app-nav-btn" type="button" data-page-nav="bagging">ตรวจแบ็กกิ้ง</button>
-    </div>
-  </nav>
+  <nav class="app-nav" aria-label="เมนูหลัก"><div class="app-nav-inner">
+    <button class="app-nav-btn active" type="button" data-page-nav="dashboard">แดชบอร์ด</button>
+    <button class="app-nav-btn" type="button" data-page-nav="parcels">พัสดุคงคลัง</button>
+    <button class="app-nav-btn" type="button" data-page-nav="status">สถานะพัสดุ</button>
+    <button class="app-nav-btn" type="button" data-page-nav="backlog">SLA &amp; Backlog</button>
+    <button class="app-nav-btn" type="button" data-page-nav="weight">น้ำหนักสาขา</button>
+    <button class="app-nav-btn" type="button" data-page-nav="bagging">ตรวจแบ็กกิ้ง</button>
+  </div></nav>
 
   <main class="app-shell">
-    <section class="heading-row compact-heading">
-      <div><h1>ติดตามพัสดุคงคลัง MS</h1></div>
-      <div class="heading-actions">
-        <label id="branch-select-wrap" class="branch-select-wrap hidden"><span>สาขาต้นทาง</span><select id="branch-select"></select></label>
-        <div class="live-note"><span id="live-dot" class="live-dot stale"></span><span id="source-sync">ยังไม่ได้เชื่อมต่อ</span></div>
-      </div>
-    </section>
+    <section class="heading-row compact-heading"><div><h1>ติดตามพัสดุคงคลัง MS</h1></div><div class="heading-actions"><label id="branch-select-wrap" class="branch-select-wrap hidden"><span>สาขาต้นทาง</span><select id="branch-select"></select></label><div class="live-note"><span id="live-dot" class="live-dot stale"></span><span id="source-sync">ยังไม่ได้เชื่อมต่อ</span></div></div></section>
 
     <section class="panel global-filter-bar">
-      <div class="global-filter-top">
-        <strong>ช่วงเวลา</strong>
-        <div class="global-filter-actions"><button id="dashboard-time-all" class="mini-btn" type="button">ทั้งหมด</button><button id="dashboard-time-clear" class="mini-btn" type="button">ล้าง</button></div>
-      </div>
+      <div class="global-filter-top"><strong>ช่วงเวลา</strong><div class="global-filter-actions"><button id="dashboard-time-all" class="mini-btn" type="button">ทั้งหมด</button><button id="dashboard-time-clear" class="mini-btn" type="button">ล้าง</button></div></div>
       <div class="global-time-grid">
-        <label><input type="checkbox" data-dashboard-band="under3" checked><span>&lt;3</span><b data-band-count="under3">0</b></label>
-        <label><input type="checkbox" data-dashboard-band="3to6" checked><span>3–6</span><b data-band-count="3to6">0</b></label>
-        <label><input type="checkbox" data-dashboard-band="6to9" checked><span>6–9</span><b data-band-count="6to9">0</b></label>
-        <label><input type="checkbox" data-dashboard-band="9to12" checked><span>9–12</span><b data-band-count="9to12">0</b></label>
-        <label><input type="checkbox" data-dashboard-band="12to16" checked><span>12–16</span><b data-band-count="12to16">0</b></label>
-        <label><input type="checkbox" data-dashboard-band="16to22" checked><span>16–22</span><b data-band-count="16to22">0</b></label>
-        <label><input type="checkbox" data-dashboard-band="22to24" checked><span>22–24</span><b data-band-count="22to24">0</b></label>
-        <label><input type="checkbox" data-dashboard-band="24to48" checked><span>24–48</span><b data-band-count="24to48">0</b></label>
-        <label><input type="checkbox" data-dashboard-band="over48" checked><span>&gt;48</span><b data-band-count="over48">0</b></label>
+        <label><input type="checkbox" data-dashboard-band="under3" checked><span>&lt;3</span><b data-band-count="under3">0</b></label><label><input type="checkbox" data-dashboard-band="3to6" checked><span>3–6</span><b data-band-count="3to6">0</b></label><label><input type="checkbox" data-dashboard-band="6to9" checked><span>6–9</span><b data-band-count="6to9">0</b></label><label><input type="checkbox" data-dashboard-band="9to12" checked><span>9–12</span><b data-band-count="9to12">0</b></label><label><input type="checkbox" data-dashboard-band="12to16" checked><span>12–16</span><b data-band-count="12to16">0</b></label><label><input type="checkbox" data-dashboard-band="16to22" checked><span>16–22</span><b data-band-count="16to22">0</b></label><label><input type="checkbox" data-dashboard-band="22to24" checked><span>22–24</span><b data-band-count="22to24">0</b></label><label><input type="checkbox" data-dashboard-band="24to48" checked><span>24–48</span><b data-band-count="24to48">0</b></label><label><input type="checkbox" data-dashboard-band="over48" checked><span>&gt;48</span><b data-band-count="over48">0</b></label>
       </div>
-      <div class="global-destination-grid">
-        <label><span>HUB ปลายทาง</span><select id="hub-filter"><option value="">ทั้งหมด</option></select></label>
-        <label><span>สาขาปลายทาง</span><select id="branch-filter"><option value="">ทั้งหมด</option></select></label>
-        <div class="selected-inline"><span>เวลา</span><strong id="dashboard-time-selected">ทั้งหมด</strong></div>
-      </div>
+      <div class="global-destination-grid"><label><span>LH ปลายทาง</span><select id="hub-filter"><option value="">ทั้งหมด</option></select></label><label><span>FD ปลายทาง</span><select id="branch-filter"><option value="">ทั้งหมด</option></select></label><div class="selected-inline"><span>เวลา</span><strong id="dashboard-time-selected">ทั้งหมด</strong></div></div>
     </section>
 
     <section class="page-view" data-page-view="dashboard">
       <div class="page-title"><h2>แดชบอร์ด</h2></div>
-      <section id="metrics" class="metric-grid compact-metrics">
-        <article class="metric-card metric-dark"><span>คงคลังทั้งหมด</span><strong id="m-total">0</strong><small id="m-store">-</small></article>
-        <article class="metric-card"><span>1 วัน</span><strong id="m-day1">0</strong></article>
-        <article class="metric-card"><span>2 วัน</span><strong id="m-day2">0</strong></article>
-        <article class="metric-card"><span>3 วัน</span><strong id="m-day3">0</strong></article>
-        <article class="metric-card metric-warning"><span>4 วัน</span><strong id="m-day4">0</strong></article>
-        <article class="metric-card metric-danger"><span>5 วันขึ้นไป</span><strong id="m-day5">0</strong></article>
-      </section>
-
-      <div class="dashboard-grid compact-dashboard-stats">
-        <article class="dashboard-stat dark"><span>รายการในหน้า</span><strong id="dash-loaded">0</strong></article>
-        <article class="dashboard-stat"><span>ช่วงที่เลือก</span><strong id="dash-selected">0</strong></article>
-        <article class="dashboard-stat warning"><span>เกินเวลาแผน</span><strong id="dash-over-plan">0</strong></article>
-        <article class="dashboard-stat"><span>มีแบ็กกิ้ง</span><strong id="dash-bagged">0</strong></article>
-        <article class="dashboard-stat danger"><span>วิกฤต</span><strong id="dash-critical">0</strong></article>
-      </div>
-
-      <section class="panel dashboard-action-bar">
-        <span id="dashboard-selection-note">-</span>
-        <div><button id="dashboard-copy-selected" class="btn btn-accent" type="button">คัดลอกรวม</button><button id="dashboard-open-selected" class="btn btn-header" type="button">เปิดรายการ</button></div>
-        <span id="dashboard-copy-status"></span>
-      </section>
-
-      <div class="dashboard-summary-grid">
-        <section class="panel summary-panel"><h3>ตามช่วงเวลา</h3><div id="dashboard-time-summary" class="summary-list"></div></section>
-        <section class="panel summary-panel"><h3>HUB ปลายทาง</h3><div id="dashboard-hub-summary" class="summary-list"></div></section>
-        <section class="panel summary-panel"><h3>สาขาปลายทาง</h3><div id="dashboard-branch-summary" class="summary-list"></div></section>
-        <section class="panel summary-panel"><h3>การดำเนินการล่าสุด</h3><div id="dashboard-action-summary" class="summary-list"></div></section>
-      </div>
+      <section id="metrics" class="metric-grid compact-metrics"><article class="metric-card metric-dark"><span>คงคลังทั้งหมด</span><strong id="m-total">0</strong><small id="m-store">-</small></article><article class="metric-card"><span>1 วัน</span><strong id="m-day1">0</strong></article><article class="metric-card"><span>2 วัน</span><strong id="m-day2">0</strong></article><article class="metric-card"><span>3 วัน</span><strong id="m-day3">0</strong></article><article class="metric-card metric-warning"><span>4 วัน</span><strong id="m-day4">0</strong></article><article class="metric-card metric-danger"><span>5 วันขึ้นไป</span><strong id="m-day5">0</strong></article></section>
+      <div class="dashboard-grid compact-dashboard-stats"><article class="dashboard-stat dark"><span>รายการในหน้า</span><strong id="dash-loaded">0</strong></article><article class="dashboard-stat"><span>ช่วงที่เลือก</span><strong id="dash-selected">0</strong></article><article class="dashboard-stat warning"><span>เกินเวลาแผน</span><strong id="dash-over-plan">0</strong></article><article class="dashboard-stat"><span>มีแบ็กกิ้ง</span><strong id="dash-bagged">0</strong></article><article class="dashboard-stat danger"><span>วิกฤต</span><strong id="dash-critical">0</strong></article></div>
+      <section class="panel dashboard-action-bar"><span id="dashboard-selection-note">-</span><div><button id="dashboard-copy-selected" class="btn btn-accent" type="button">คัดลอกรวม</button><button id="dashboard-open-selected" class="btn btn-header" type="button">เปิดรายการ</button></div><span id="dashboard-copy-status"></span></section>
+      <div class="dashboard-summary-grid"><section class="panel summary-panel"><h3>ตามช่วงเวลา</h3><div id="dashboard-time-summary" class="summary-list"></div></section><section class="panel summary-panel"><h3>LH ปลายทาง</h3><div id="dashboard-hub-summary" class="summary-list"></div></section><section class="panel summary-panel"><h3>FD ปลายทาง</h3><div id="dashboard-branch-summary" class="summary-list"></div></section><section class="panel summary-panel"><h3>การดำเนินการล่าสุด</h3><div id="dashboard-action-summary" class="summary-list"></div></section></div>
     </section>
 
-    <section class="page-view hidden" data-page-view="parcels">
-      <div class="page-title"><h2>พัสดุคงคลัง</h2></div>
-      <div id="parcels-results-slot" class="results-slot">
-        <div id="results-panel">
-          <section class="panel toolbar-panel compact-toolbar">
-            <div class="toolbar-grid compact-toolbar-grid">
-              <label><span>ค้นหา</span><input id="search-input" type="search" placeholder="เลขพัสดุ / แบ็กกิ้ง / HUB / สาขา / ลูกค้า" /></label>
-              <label><span>สถานะ</span><select id="status-filter"><option value="">ทั้งหมด</option></select></label>
-              <label><span>แถว</span><select id="page-size"><option>20</option><option>50</option><option selected>100</option></select></label>
-            </div>
-            <div class="toolbar-footer"><span id="page-info">หน้า 1</span><div class="pager-actions"><button id="prev-btn" class="btn btn-header" type="button">ก่อนหน้า</button><button id="next-btn" class="btn btn-header" type="button">ถัดไป</button></div></div>
-            <p id="last-refresh" class="sync-text">-</p>
-          </section>
-          <section class="panel table-panel">
-            <div id="empty-state" class="empty-state">กรุณาเข้าสู่ระบบ</div>
-            <div id="table-wrap" class="table-scroll hidden"><table class="parcel-table"><thead><tr><th>เลขพัสดุ</th><th>สถานะ</th><th>เฝ้าระวัง</th><th>COD / น้ำหนัก</th><th>เวลาแผน / ถึงจริง</th><th>แบ็กกิ้ง</th><th>สาเหตุคงคลัง</th><th>ดำเนินการล่าสุด</th><th>ผู้ดำเนินการ</th><th>HUB / สาขาปลายทาง</th><th>ที่อยู่ผู้รับ</th><th>ประเภทลูกค้า / ลูกค้า</th></tr></thead><tbody id="table-body"></tbody></table></div>
-            <div id="mobile-cards" class="mobile-cards hidden"></div>
-          </section>
-        </div>
-      </div>
-    </section>
+    <section class="page-view hidden" data-page-view="parcels"><div class="page-title"><h2>พัสดุคงคลัง</h2></div><div id="parcels-results-slot" class="results-slot"><div id="results-panel"><section class="panel toolbar-panel compact-toolbar"><div class="toolbar-grid compact-toolbar-grid"><label><span>ค้นหา</span><input id="search-input" type="search" placeholder="เลขพัสดุ / แบ็กกิ้ง / LH / FD / ลูกค้า" /></label><label><span>สถานะ</span><select id="status-filter"><option value="">ทั้งหมด</option></select></label><label><span>แถว</span><select id="page-size"><option>20</option><option>50</option><option selected>100</option></select></label></div><div class="toolbar-footer"><span id="page-info">หน้า 1</span><div class="pager-actions"><button id="prev-btn" class="btn btn-header" type="button">ก่อนหน้า</button><button id="next-btn" class="btn btn-header" type="button">ถัดไป</button></div></div><p id="last-refresh" class="sync-text">-</p></section><section class="panel table-panel"><div id="empty-state" class="empty-state">กรุณาเข้าสู่ระบบ</div><div id="table-wrap" class="table-scroll hidden"><table class="parcel-table"><thead><tr><th>เลขพัสดุ</th><th>สถานะ</th><th>เฝ้าระวัง</th><th>COD / น้ำหนัก</th><th>เวลาแผน / ถึงจริง</th><th>แบ็กกิ้ง</th><th>สาเหตุคงคลัง</th><th>ดำเนินการล่าสุด</th><th>ผู้ดำเนินการ</th><th>LH / FD ปลายทาง</th><th>ที่อยู่ผู้รับ</th><th>ประเภทลูกค้า / ลูกค้า</th></tr></thead><tbody id="table-body"></tbody></table></div><div id="mobile-cards" class="mobile-cards hidden"></div></section></div></div></section>
 
-    <section class="page-view hidden" data-page-view="backlog">
-      <div class="page-title"><h2>SLA &amp; Backlog</h2></div>
-      <div id="backlog-time-banner" class="backlog-time-banner hidden"><div><strong>ช่วงเวลา</strong><span id="backlog-time-label">-</span></div><button id="backlog-time-clear" class="mini-btn" type="button">ยกเลิก</button></div>
-      <section class="panel smart-panel compact-smart-panel">
-        <div class="smart-head"><strong>สถานะ SLA</strong><div class="smart-actions"><label class="smart-sort"><input id="risk-sort" type="checkbox" checked /> เสี่ยงสุดก่อน</label><button id="copy-risk-btn" class="btn btn-header" type="button">คัดลอก</button></div></div>
-        <div class="smart-filter-grid" id="smart-filters">
-          <button class="smart-filter active" type="button" data-risk="all"><span>ทั้งหมด</span><strong id="risk-all">0</strong></button>
-          <button class="smart-filter" type="button" data-risk="under24"><span>&lt;24 ชม.</span><strong id="risk-under24">0</strong></button>
-          <button class="smart-filter" type="button" data-risk="24to48"><span>เกิน SLA 24</span><strong id="risk-24to48">0</strong></button>
-          <button class="smart-filter danger" type="button" data-risk="over48"><span>เกิน SLA 48</span><strong id="risk-over48">0</strong></button>
-          <button class="smart-filter missed" type="button" data-risk="missed"><span>เกินเวลาแผน</span><strong id="risk-missed">0</strong></button>
-          <button class="smart-filter warning" type="button" data-risk="dueSoon"><span>ใกล้เวลาแผน</span><strong id="risk-due-soon">0</strong></button>
-        </div>
-        <span id="risk-under24-total" class="hidden">0</span><span id="smart-note" class="compact-note"></span><span id="sla-band-note" class="hidden"></span>
-      </section>
-      <div id="backlog-results-slot" class="results-slot"></div>
-    </section>
+    <section class="page-view hidden" data-page-view="backlog"><div class="page-title"><h2>SLA &amp; Backlog</h2></div><div id="backlog-time-banner" class="backlog-time-banner hidden"><div><strong>ช่วงเวลา</strong><span id="backlog-time-label">-</span></div><button id="backlog-time-clear" class="mini-btn" type="button">ยกเลิก</button></div><section class="panel smart-panel compact-smart-panel"><div class="smart-head"><strong>สถานะ SLA</strong><div class="smart-actions"><label class="smart-sort"><input id="risk-sort" type="checkbox" checked /> เสี่ยงสุดก่อน</label><button id="copy-risk-btn" class="btn btn-header" type="button">คัดลอก</button></div></div><div class="smart-filter-grid" id="smart-filters"><button class="smart-filter active" type="button" data-risk="all"><span>ทั้งหมด</span><strong id="risk-all">0</strong></button><button class="smart-filter" type="button" data-risk="under24"><span>&lt;24 ชม.</span><strong id="risk-under24">0</strong></button><button class="smart-filter" type="button" data-risk="24to48"><span>เกิน SLA 24</span><strong id="risk-24to48">0</strong></button><button class="smart-filter danger" type="button" data-risk="over48"><span>เกิน SLA 48</span><strong id="risk-over48">0</strong></button><button class="smart-filter missed" type="button" data-risk="missed"><span>เกินเวลาแผน</span><strong id="risk-missed">0</strong></button><button class="smart-filter warning" type="button" data-risk="dueSoon"><span>ใกล้เวลาแผน</span><strong id="risk-due-soon">0</strong></button></div><span id="risk-under24-total" class="hidden">0</span><span id="smart-note" class="compact-note"></span><span id="sla-band-note" class="hidden"></span></section><div id="backlog-results-slot" class="results-slot"></div></section>
 
-    <section class="page-view hidden" data-page-view="bagging">
-      <div class="page-title"><h2>ตรวจแบ็กกิ้ง</h2></div>
-      <section class="panel bag-panel compact-bag-panel">
-        <div class="smart-head"><strong>แบ็กกิ้ง</strong><div class="smart-actions"><button id="copy-bag-btn" class="btn btn-header" type="button">คัดลอก</button><button id="bag-reset-btn" class="btn btn-header" type="button">ล้าง</button></div></div>
-        <div class="bag-metric-grid">
-          <article class="bag-metric"><span>พัสดุมีแบ็ก</span><strong id="bag-parcels">0</strong></article>
-          <article class="bag-metric"><span>เลขแบ็ก</span><strong id="bag-count">0</strong></article>
-          <article class="bag-metric danger"><span>ผิดปกติ</span><strong id="bag-anomaly">0</strong></article>
-          <article class="bag-metric warning"><span>เกินเวลาแผน</span><strong id="bag-plan-overdue">0</strong></article>
-          <article class="bag-metric warning"><span>ไม่อัปเดต &gt;6ชม.</span><strong id="bag-stale">0</strong></article>
-        </div>
-        <div class="bag-toolbar compact-bag-toolbar">
-          <label><span>โหมด</span><select id="bag-mode"><option value="all" selected>ทั้งหมด</option><option value="bagging">มีเลขแบ็กกิ้ง</option></select></label>
-          <label><span>เลขแบ็ก</span><input id="bag-search" type="search" placeholder="เลขแบ็กกิ้ง" /></label>
-          <label><span>ดำเนินการล่าสุด</span><select id="bag-action-filter"><option value="">ทั้งหมด</option></select></label>
-          <label><span>HUB</span><select id="bag-hub-filter"><option value="">ทั้งหมด</option></select></label>
-          <label><span>สาขา</span><select id="bag-branch-filter"><option value="">ทั้งหมด</option></select></label>
-          <label><span>ตรวจ</span><select id="bag-issue-filter"><option value="all">ทั้งหมด</option><option value="anomaly">ผิดปกติ</option><option value="mixedDestination">ปลายทางปน</option><option value="mixedAction">การดำเนินการปน</option><option value="mixedState">สถานะปน</option><option value="planOverdue">เกินเวลาแผน</option><option value="stale6h">ไม่อัปเดต &gt;6ชม.</option><option value="critical">วิกฤต</option></select></label>
-        </div>
-        <div id="bag-alert-list" class="bag-alert-list compact-alert-list"></div>
-        <span id="bag-note" class="compact-note"></span>
-      </section>
-      <div id="bagging-results-slot" class="results-slot"></div>
-    </section>
+    <section class="page-view hidden" data-page-view="bagging"><div class="page-title"><h2>ตรวจแบ็กกิ้ง</h2></div><section class="panel bag-panel compact-bag-panel"><div class="smart-head"><strong>แบ็กกิ้ง</strong><div class="smart-actions"><button id="copy-bag-btn" class="btn btn-header" type="button">คัดลอก</button><button id="bag-reset-btn" class="btn btn-header" type="button">ล้าง</button></div></div><div class="bag-metric-grid"><article class="bag-metric"><span>พัสดุมีแบ็ก</span><strong id="bag-parcels">0</strong></article><article class="bag-metric"><span>เลขแบ็ก</span><strong id="bag-count">0</strong></article><article class="bag-metric danger"><span>ผิดปกติ</span><strong id="bag-anomaly">0</strong></article><article class="bag-metric warning"><span>เกินเวลาแผน</span><strong id="bag-plan-overdue">0</strong></article><article class="bag-metric warning"><span>ไม่อัปเดต &gt;6ชม.</span><strong id="bag-stale">0</strong></article></div><div class="bag-toolbar compact-bag-toolbar"><label><span>โหมด</span><select id="bag-mode"><option value="all" selected>ทั้งหมด</option><option value="bagging">มีเลขแบ็กกิ้ง</option></select></label><label><span>เลขแบ็ก</span><input id="bag-search" type="search" placeholder="เลขแบ็กกิ้ง" /></label><label><span>ดำเนินการล่าสุด</span><select id="bag-action-filter"><option value="">ทั้งหมด</option></select></label><label><span>LH</span><select id="bag-hub-filter"><option value="">ทั้งหมด</option></select></label><label><span>FD</span><select id="bag-branch-filter"><option value="">ทั้งหมด</option></select></label><label><span>ตรวจ</span><select id="bag-issue-filter"><option value="all">ทั้งหมด</option><option value="anomaly">ผิดปกติ</option><option value="mixedDestination">ปลายทางปน</option><option value="mixedAction">การดำเนินการปน</option><option value="mixedState">สถานะปน</option><option value="planOverdue">เกินเวลาแผน</option><option value="stale6h">ไม่อัปเดต &gt;6ชม.</option><option value="critical">วิกฤต</option></select></label></div><div id="bag-alert-list" class="bag-alert-list compact-alert-list"></div><span id="bag-note" class="compact-note"></span></section><div id="bagging-results-slot" class="results-slot"></div></section>
   </main>
 
   <dialog id="login-dialog"><form id="login-form" class="dialog-card"><h2>เข้าสู่ระบบ</h2><label><span>Username</span><input id="username" type="text" autocomplete="username" minlength="3" maxlength="32" required /></label><label><span>รหัสผ่าน</span><input id="password" type="password" autocomplete="current-password" minlength="6" required /></label><div id="login-error" class="form-error hidden"></div><button class="btn btn-accent" type="submit">เข้าสู่ระบบ</button></form></dialog>
-
   <dialog id="users-dialog"><div class="dialog-card users-dialog-card"><button id="users-close" class="dialog-close" type="button">×</button><h2>จัดการผู้ใช้</h2><form id="create-user-form" class="admin-form-grid"><label><span>Username</span><input id="new-username" type="text" minlength="3" maxlength="32" required /></label><label><span>ชื่อแสดง</span><input id="new-display-name" type="text" maxlength="80" /></label><label><span>รหัสผ่าน</span><input id="new-password" type="password" minlength="6" maxlength="128" required /></label><label><span>สาขา</span><select id="new-user-branch" required></select></label><label class="check-label"><input id="new-can-upload-har" type="checkbox" /><span>อัปโหลด HAR</span></label><button class="btn btn-accent" type="submit">สร้างผู้ใช้</button></form><div id="users-status" class="sync-text"></div><div id="users-list" class="users-list"></div><button id="users-refresh" class="btn btn-header" type="button">รีเฟรช</button></div></dialog>
-
   <dialog id="branches-dialog"><div class="dialog-card users-dialog-card"><button id="branches-close" class="dialog-close" type="button">×</button><h2>จัดการสาขา</h2><form id="create-branch-form" class="admin-form-grid branch-form-grid"><label><span>รหัส</span><input id="new-branch-code" type="text" maxlength="20" required /></label><label><span>ชื่อสาขา / HUB</span><input id="new-branch-name" type="text" maxlength="120" required /></label><button class="btn btn-accent" type="submit">เพิ่มสาขา</button></form><div id="branches-status" class="sync-text"></div><div id="branches-list" class="users-list"></div><button id="branches-refresh" class="btn btn-header" type="button">รีเฟรช</button></div></dialog>
-
   <dialog id="har-dialog"><form id="har-form" class="dialog-card"><button id="har-close" class="dialog-close" type="button">×</button><h2>อัปโหลด HAR</h2><p id="har-branch-note"></p><input id="har-file" type="file" accept=".har,application/json" required /><div id="har-status" class="sync-text"></div><button class="btn btn-accent" type="submit">อัปโหลด</button></form></dialog>
 </body>
 </html>
