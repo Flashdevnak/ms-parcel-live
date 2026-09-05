@@ -6,8 +6,8 @@
   <meta name="theme-color" content="#151515" />
   <title>MS Parcel Live</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-  <link rel="stylesheet" href="style.css" />
-  <script type="module" src="app.js?v=20260905-2"></script>
+  <link rel="stylesheet" href="style.css?v=20260905-3" />
+  <script type="module" src="app.js?v=20260905-3"></script>
 </head>
 <body>
   <header class="site-header">
@@ -48,6 +48,28 @@
       <article class="metric-card metric-danger"><span>5 วันขึ้นไป</span><strong id="m-day5">0</strong><small>ควรเร่งดำเนินการ</small></article>
     </section>
 
+    <section class="panel smart-panel">
+      <div class="smart-head">
+        <div>
+          <strong>Smart Backlog Monitor</strong>
+          <span>วิเคราะห์จากข้อมูลที่โหลดอยู่แล้วในหน้าปัจจุบัน · ไม่ยิง MS / Edge เพิ่ม</span>
+        </div>
+        <div class="smart-actions">
+          <label class="smart-sort"><input id="risk-sort" type="checkbox" checked /> เสี่ยงสุดก่อน</label>
+          <button id="copy-risk-btn" class="btn btn-header" type="button">คัดลอกรายการที่กรอง</button>
+        </div>
+      </div>
+      <div class="smart-filter-grid" id="smart-filters">
+        <button class="smart-filter active" type="button" data-risk="all"><span>ทั้งหมดในหน้า</span><strong id="risk-all">0</strong></button>
+        <button class="smart-filter" type="button" data-risk="under24"><span>ค้าง &lt;24 ชม.</span><strong id="risk-under24">0</strong></button>
+        <button class="smart-filter" type="button" data-risk="24to48"><span>ค้าง 24–48 ชม.</span><strong id="risk-24to48">0</strong></button>
+        <button class="smart-filter danger" type="button" data-risk="over48"><span>ค้าง &gt;48 ชม.</span><strong id="risk-over48">0</strong></button>
+        <button class="smart-filter missed" type="button" data-risk="missed"><span>ตกรอบรถ</span><strong id="risk-missed">0</strong></button>
+        <button class="smart-filter warning" type="button" data-risk="dueSoon"><span>ใกล้ตกรอบ ≤60 นาที</span><strong id="risk-due-soon">0</strong></button>
+      </div>
+      <p id="smart-note" class="sync-text">เวลาค้างนับจาก “เวลาถึงตามจริง” · ตกรอบรถ = เวลาแผนออกผ่านแล้วแต่ยังอยู่ในรายการคงคลัง</p>
+    </section>
+
     <section class="panel toolbar-panel">
       <div class="toolbar-grid">
         <label><span>ค้นหาในหน้าปัจจุบัน</span><input id="search-input" type="search" placeholder="เลขพัสดุ / แบ็กกิ้ง / HUB / สาขา / ลูกค้า" /></label>
@@ -67,7 +89,7 @@
       <div id="empty-state" class="empty-state">กรุณาเข้าสู่ระบบ</div>
       <div id="table-wrap" class="table-scroll hidden">
         <table class="parcel-table">
-          <thead><tr><th>เลขพัสดุ</th><th>สถานะ</th><th>COD / น้ำหนัก</th><th>เวลาแผน / ถึงจริง</th><th>แบ็กกิ้ง</th><th>สาเหตุคงคลัง</th><th>ดำเนินการล่าสุด</th><th>ผู้ดำเนินการ</th><th>HUB / สาขาปลายทาง</th><th>ที่อยู่ผู้รับ</th><th>ประเภทลูกค้า / ลูกค้า</th></tr></thead>
+          <thead><tr><th>เลขพัสดุ</th><th>สถานะ</th><th>เฝ้าระวัง</th><th>COD / น้ำหนัก</th><th>เวลาแผน / ถึงจริง</th><th>แบ็กกิ้ง</th><th>สาเหตุคงคลัง</th><th>ดำเนินการล่าสุด</th><th>ผู้ดำเนินการ</th><th>HUB / สาขาปลายทาง</th><th>ที่อยู่ผู้รับ</th><th>ประเภทลูกค้า / ลูกค้า</th></tr></thead>
           <tbody id="table-body"></tbody>
         </table>
       </div>
