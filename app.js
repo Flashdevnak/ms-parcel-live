@@ -1,4 +1,4 @@
-import {supabase} from './auth-client.js?v=20260906-total-hint-v1';
+import {supabase} from './auth-client.js?v=20260906-manager-lossless-v1';
 
 const CONFIG = {
   supabaseUrl: 'https://afhnfnfbqdqqzrghovfc.supabase.co',
