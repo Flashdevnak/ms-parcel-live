@@ -96,7 +96,7 @@ function loadSelection() {
     const raw = JSON.parse(localStorage.getItem('ms-dashboard-time-bands') || 'null');
     if (Array.isArray(raw)) {
       const valid = raw.filter((key) => TIME_BANDS.some(([band]) => band === key));
-      if (valid.length) shellState.selectedBands = new Set(valid);
+      shellState.selectedBands = new Set(valid);
     }
   } catch (_) {}
 }
@@ -210,8 +210,21 @@ async function copySelectedSummary() {
   }
 }
 
+function clearNativeFilters() {
+  if ($('search-input')) $('search-input').value = '';
+  for (const id of ['status-filter', 'hub-filter', 'branch-filter']) {
+    if ($(id)) $(id).value = '';
+  }
+  $('search-input')?.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
 function resetPageFiltersFor(page) {
-  if (page === 'parcels') {
+  if (page === 'dashboard') {
+    clearNativeFilters();
+    $('bag-reset-btn')?.click();
+    document.querySelector('.smart-filter[data-risk="all"]')?.click();
+    shellState.useSelectedAsFilter = false;
+  } else if (page === 'parcels') {
     $('bag-reset-btn')?.click();
     document.querySelector('.smart-filter[data-risk="all"]')?.click();
     shellState.useSelectedAsFilter = false;
@@ -243,7 +256,8 @@ function setPage(nextPage, { updateHash = true, resetFilters = true } = {}) {
   if (page !== 'dashboard') moveResults(page);
   if (updateHash && location.hash !== `#${page}`) history.replaceState(null, '', `#${page}`);
   applySelectedTimeFilter();
-  window.scrollTo({ top: 0, behavior: 'instant' });
+  renderDashboard();
+  window.scrollTo({ top: 0, behavior: 'auto' });
 }
 
 function scheduleDashboardRender() {
