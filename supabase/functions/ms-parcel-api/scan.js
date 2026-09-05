@@ -15,19 +15,20 @@ export async function collectSnapshot(fetchPage, pageSize = 10000) {
       return { total, requestedPageSize: pageSize, sourcePageSize: 0, effectivePageSize: pageSize, pages: 1, maxPages: MAX_PAGES, attempt, complete:false, reason:'source_empty_page', scanned:0, requests, rowPages:[] };
     }
 
-    // Page numbering in FBI is based on the requested page_size. A first page
-    // can occasionally be short while later pages still contain page_size rows,
-    // so never use only page-1 length as the offset/stride.
-    const pages = Math.max(1, Math.ceil(total / Math.max(1, pageSize)));
-    const base = { total, requestedPageSize: pageSize, sourcePageSize: observed, effectivePageSize: pageSize, pages, maxPages: MAX_PAGES, attempt };
+    // FBI normally uses the requested page_size as its page stride. A first
+    // page can be short by a tiny amount while later pages are full, so do not
+    // mistake that for a source cap. Only adapt when the first page is
+    // materially smaller (<90% of the requested size).
+    const materiallyCapped = total > observed && pageSize > 100 && observed > 100 && observed < pageSize * 0.9;
+    const stride = materiallyCapped ? observed : Math.max(1, pageSize);
+    const pages = Math.max(1, Math.ceil(total / stride));
+    const base = { total, requestedPageSize: pageSize, sourcePageSize: observed, effectivePageSize: stride, pages, maxPages: MAX_PAGES, attempt };
     if (total > observed && observed <= 100 && pageSize > 100) return {...base, complete:false, reason:'source_page_cap', scanned:observed, requests, rowPages:[]};
     if (pages - 1 > MAX_PAGES - requests) return {...base, complete:false, reason:'too_many_pages', scanned:observed, requests, rowPages:[]};
 
     const all = [first];
-    // Fetch the remaining source pages concurrently. With the current NE1
-    // inventory this keeps a full pass to roughly six source reads instead of
-    // two sequential batches, reducing the mutation window without increasing
-    // request count.
+    // Fetch the remaining source pages concurrently. This minimizes the source
+    // mutation window without increasing the number of source requests.
     if (pages > 1) {
       const nums = Array.from({length: pages - 1}, (_, i) => i + 2);
       requests += nums.length;
@@ -45,7 +46,7 @@ export async function collectSnapshot(fetchPage, pageSize = 10000) {
     const nonFinalCounts = all.slice(0, Math.max(1, all.length - 1)).map(p => p.rows.length);
     const acceptedPageSize = nonFinalCounts.length ? Math.max(...nonFinalCounts) : observed;
     const complete = seen.size === total && !duplicates && !missingIds && stableTotal;
-    result = {...base, effectivePageSize:acceptedPageSize || pageSize, acceptedPageSize:acceptedPageSize || 0, complete, scanned:seen.size, requests, duplicates, missingIds, stableTotal,
+    result = {...base, acceptedPageSize:acceptedPageSize || 0, complete, scanned:seen.size, requests, duplicates, missingIds, stableTotal,
       pageCounts:all.map(p=>p.rows.length), sourceTotals:all.map(p=>Number(p.total)),
       reason:complete?null:!stableTotal?'source_changed':duplicates?'duplicate_parcels':missingIds?'missing_parcel_ids':'row_count_mismatch', rowPages};
     if (complete || requests + pages > MAX_PAGES) return result;
