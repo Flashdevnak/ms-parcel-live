@@ -7,7 +7,10 @@ function decode(r){
  const out=Object.fromEntries(keys.map((k,i)=>[k,r[i]??'']));
  const manager=String(r?.[9]??'').trim();
  out.store_manager_display=manager;
- out.store_manager_phone=manager.includes(' · ')?manager.split(' · ').at(-1).trim():manager;
+ out.store_manager_phone_raw=manager.includes(' · ')?manager.split(' · ').at(-1).trim():manager;
+ // Compatibility: existing workspace views historically read store_manager_phone.
+ // In full snapshots this field now intentionally carries the complete manager-column display.
+ out.store_manager_phone=manager;
  out.dst_hub_name=r?.[10]??'';out.dst_store_name=r?.[11]??'';
  return out;
 }
