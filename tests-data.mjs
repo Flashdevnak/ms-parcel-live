@@ -56,17 +56,17 @@ assert.equal(a.complete,true);assert.equal(a.probeTotal,12050);assert.equal(a.to
 
 const branch={code:'NE1',name:'NE1_HUB'};assert.deepEqual(route({dst_hub_name:'(123)NE1_HUB',dst_store_name:'(42)บุรีรัมย์'},branch),{r:'fd',d:'บุรีรัมย์'});assert.equal(route({dst_hub_name:'NE4_HUB'},branch).r,'lh');assert.equal(route({},branch).r,'other');
 assert.equal(band('2026-09-06 00:00:00',Date.parse('2026-09-06T00:00:00+07:00')),'under3');assert.equal(band(null),'unknown');
-const fullManager='(TH00000001)01 TEST_HUB-ทดสอบ · นาย ทดสอบ ระบบ · 0812345678';
+const fullManager='(TH00000001)01 TEST_HUB-ทดสอบ\nนาย ทดสอบ ระบบ\n0812345678';
 const decodedManager=decodeSnapshotRow(['PX','คงคลัง',1000,'','','','','','099',fullManager,'TH00000001','01 TEST_HUB-ทดสอบ','นาย ทดสอบ ระบบ','0812345678','NE1_HUB','ปลายทาง']);
 assert.equal(decodedManager.store_id,'TH00000001');assert.equal(decodedManager.store_name,'01 TEST_HUB-ทดสอบ');assert.equal(decodedManager.store_manager_name,'นาย ทดสอบ ระบบ');assert.equal(decodedManager.store_manager_phone,'0812345678');assert.equal(managerValue(decodedManager),fullManager);
 assert.equal(managerValue({store_manager_display:fullManager,store_manager_phone:'0812345678'}),fullManager);
-assert.equal(managerValue({store_manager_phone:'0812345678'}),'0812345678');
-assert.equal(managerValue({store_id:'TH00000001',store_name:'01 TEST_HUB-A',store_manager_name:'นาย ทดสอบ',store_manager_phone:'0812345678'}),'(TH00000001)01 TEST_HUB-A · นาย ทดสอบ · 0812345678');
+assert.equal(managerValue({store_manager_phone:'0812345678'}),'()\n0812345678');
+assert.equal(managerValue({store_id:'TH00000001',store_name:'01 TEST_HUB-A',store_manager_name:'นาย ทดสอบ',store_manager_phone:'0812345678'}),'(TH00000001)01 TEST_HUB-A\nนาย ทดสอบ\n0812345678');assert.equal(managerValue({store_id:'1'}),'(1)');assert.equal(managerValue({store_id:''}),'()');
 assert.equal(rowCell({real_arrive_time:'2026-09-01 00:00:00',LastActionTime:'2026-09-06 00:00:00'},branch,Date.parse('2026-09-06T01:00:00+07:00')).b,'under3');
-assert.equal(rowMatch({store_manager_display:fullManager,store_manager_phone:'0812345678',staff_info_phone:'099'},{manager:fullManager},branch,Date.now()),true);
+assert.equal(rowMatch({store_manager_display:fullManager,store_manager_phone:'0812345678',staff_info_phone:'099'},{manager:fullManager},branch,Date.now()),true);assert.equal(rowMatch({store_manager_display:fullManager,store_manager_phone:'0812345678'},{manager:new Set([fullManager,'(1)'])},branch,Date.now()),true);
 assert.equal(rowMatch({store_manager_display:fullManager,store_manager_phone:'0812345678',staff_info_phone:'099'},{manager:'099'},branch,Date.now()),false);
 assert.equal(rowMatch({store_manager_display:fullManager,store_manager_phone:'0812345678'},{q:'ทดสอบ ระบบ'},branch,Date.now()),true);
 const grouped=bags([{pno:'1',pack_num:'bag',dst_hub_name:'NE1_HUB',dst_store_name:'A'},{pno:'2',pack_num:'bag',dst_hub_name:'NE4_HUB'}],branch,Date.now());assert.equal(grouped[0].mixed,true);
 assert.equal(validAnalytics({complete:true,total:2,scanned:3,cells:[{c:3}]}),false);
 const meta={complete:true,total:2,scanned:2,snapshotPages:1};const pages=[{cache_key:'b:1:snapshot:x:p:0001',source_total:2,item_count:2,payload:[['1'],['2']]}];assert.equal(snapshotValid(pages,meta),true);pages[0].payload[1]=['1'];assert.equal(snapshotValid(pages,meta),false);
-console.log('PASS: anchored concurrent scan, FBI total hint, 10k accepted/capped paging, probe-short safety, retry isolation, duplicate/missing/changed totals, 30 request ceiling, zero inventory, Thai time, FD/LH, lossless full manager identity, mixed bags, snapshot identity/count');
+console.log('PASS: anchored concurrent scan, FBI total hint, 10k accepted/capped paging, probe-short safety, retry isolation, duplicate/missing/changed totals, 30 request ceiling, zero inventory, Thai time, FD/LH, lossless exact manager/store column including empty/id-only values and multiselect matching, mixed bags, snapshot identity/count');

@@ -1,4 +1,4 @@
-import {supabase} from './auth-client.js?v=20260906-operational-v21';
+import {supabase} from './auth-client.js?v=20260906-manager-multi-v22';
 
 const CONFIG = {
   supabaseUrl: 'https://afhnfnfbqdqqzrghovfc.supabase.co',

@@ -156,3 +156,5 @@ GitHub Pages workflow ตรวจทุก commit:
 ## Repository boundary
 - ใช้เฉพาะ `Flashdevnak/ms-parcel-live`
 - `waiting-trucks-report` เป็นคนละระบบ ห้ามอ่าน แก้ไข commit หรือใช้เป็นฐานของโปรเจกต์นี้
+
+- ตัวกรอง LH / FD / การดำเนินการล่าสุด / ผู้จัดการสาขา เป็น checkbox multi-select และเลือกหลายค่าได้; คอลัมน์ผู้จัดการสาขาเก็บค่าตาม source ครบแม้เป็น `()`, `(1)` หรือไม่มีชื่อ/เบอร์ โดยไม่ตัดทิ้ง

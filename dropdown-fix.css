@@ -13,3 +13,8 @@
 .global-destination-grid label,.work-search label,.work-actions{min-width:0}
 .global-destination-grid .persistent-select,.work-search .persistent-select,.work-actions .persistent-select,.branch-select-wrap .persistent-select{width:100%}
 @media(max-width:640px){.persistent-select-panel{max-width:calc(100vw - 24px)!important}.persistent-select-trigger{font-size:14px}}
+
+.persistent-select.multi .persistent-select-option{display:grid;grid-template-columns:24px minmax(0,1fr);align-items:start;gap:9px}
+.persistent-select-option input[type=checkbox]{width:18px;height:18px;margin:2px 0 0;pointer-events:none;accent-color:#17375e}
+.persistent-select-option span,.persistent-select-trigger>span,.work-bar>span{white-space:pre-line!important}
+.persistent-select.multi .persistent-select-trigger>span{font-weight:600}

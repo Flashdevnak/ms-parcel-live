@@ -1,12 +1,12 @@
 import { db, decryptCredential, encryptCredential, hashPage, json } from './core.ts';
 
-function text(value:unknown){return String(value??'').trim();}
+function rawText(value:unknown){return value===null||value===undefined?'':String(value);}
 export function managerDisplay(r:any){
-  const managerName=text(r?.store_manager_name),managerPhone=text(r?.store_manager_phone);
-  if(!managerName&&!managerPhone)return null;
-  const storeId=text(r?.store_id),storeName=text(r?.store_name),storeLabel=`${storeId?`(${storeId})`:''}${storeName}`.trim();
-  return [storeLabel,managerName,managerPhone].filter(Boolean).join(' · ')||null;
+  const storeId=rawText(r?.store_id),storeName=rawText(r?.store_name),managerName=rawText(r?.store_manager_name),managerPhone=rawText(r?.store_manager_phone);
+  const storeLine=`(${storeId})${storeName}`;
+  return [storeLine,managerName,managerPhone].filter((value,index)=>index===0||value!=='').join('\n');
 }
+
 
 export function slimRow(r: any) {
   return {

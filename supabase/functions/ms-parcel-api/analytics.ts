@@ -16,6 +16,7 @@ function parseTime(value:unknown){const raw=String(value??'').trim();if(!raw||ra
 function bandOf(value:unknown,now:number){const t=parseTime(value);if(!Number.isFinite(t)||now<t)return'unknown';const h=(now-t)/3600000;if(h<3)return'under3';if(h<6)return'3to6';if(h<9)return'6to9';if(h<12)return'9to12';if(h<16)return'12to16';if(h<22)return'16to22';if(h<24)return'22to24';if(h<=48)return'24to48';return'over48';}
 function addGroup(map:Map<string,any>,key:string,kg:number){if(!key)return;const item=map.get(key)||{name:key,count:0,weightKg:0};item.count+=1;item.weightKg+=kg;map.set(key,item);}
 function addCount(map:Map<string,number>,key:string){const name=String(key||'-').trim()||'-';map.set(name,(map.get(name)||0)+1);}
+function addRawCount(map:Map<string,number>,key:unknown){const name=key===null||key===undefined?'':String(key);map.set(name,(map.get(name)||0)+1);}
 function sortedGroups(map:Map<string,any>){return[...map.values()].map((x)=>({...x,weightKg:Math.round(x.weightKg*1000)/1000,avgKg:x.count?Math.round((x.weightKg/x.count)*1000)/1000:0})).sort((a,b)=>b.count-a.count||a.name.localeCompare(b.name,'th'));}
 function sortedCounts(map:Map<string,number>){return[...map.entries()].map(([name,count])=>({name,count})).sort((a,b)=>b.count-a.count||a.name.localeCompare(b.name,'th'));}
 function cellKey(route:string,dest:string,band:string,action:string,manager:string){return`${route}\u001f${dest}\u001f${band}\u001f${action}\u001f${manager}`;}
@@ -64,7 +65,7 @@ export async function buildFullAnalytics(conn:any,branch:any,requestedPageSize=D
   const collected:any=await collectSnapshot((p:number,size:number,totalHint:number)=>fetchLivePage(conn,p,size,totalHint),pageSize);
   const {rowPages,...scan}=collected;
   const {total,pages}=scan;
-  if(!rowPages?.length)return {...scan,branchId,snapshotStore:null,snapshotId:null,snapshotPages:0,snapshotExpiresAt:null,updatedAt:new Date().toISOString(),schemaVersion:9};
+  if(!rowPages?.length)return {...scan,branchId,snapshotStore:null,snapshotId:null,snapshotPages:0,snapshotExpiresAt:null,updatedAt:new Date().toISOString(),schemaVersion:10};
 
   const now=Date.now(),sourceAt=new Date(now).toISOString(),snapshotId=crypto.randomUUID(),expiresAt=new Date(now+SNAPSHOT_TTL_MS).toISOString();
   const isOwnHub=ownHubMatcher(branch),fd=new Map<string,any>(),lh=new Map<string,any>(),actions=new Map<string,number>(),parcelStates=new Map<string,number>(),managerPhones=new Map<string,number>(),bags=new Set<string>(),cells=new Map<string,any>(),bandTotals:Record<string,number>=Object.fromEntries(BANDS.map((b)=>[b,0])),snapshotPages:any[]=[];
@@ -75,8 +76,8 @@ export async function buildFullAnalytics(conn:any,branch:any,requestedPageSize=D
     for(let i=0;i<compact.length;i+=SNAPSHOT_PAGE_SIZE)snapshotPages.push(compact.slice(i,i+SNAPSHOT_PAGE_SIZE));
     for(const row of rows){
       scanned+=1;
-      const kg=weightKg(row?.store_weight),band=bandOf(row?.LastActionTime,now),action=String(row?.LastAction_name||'-').trim()||'-',manager=String(row?.store_manager_display||row?.store_manager_phone||'-').trim()||'-',plan=parseTime(row?.plan_leave_time),overdue=Number.isFinite(plan)&&now>plan,critical=overdue&&band==='over48';
-      totalWeightKg+=kg;bandTotals[band]=(bandTotals[band]||0)+1;addCount(actions,action);addCount(parcelStates,String(row?.state_name||'-'));addCount(managerPhones,manager);if(overdue)overdueTotal+=1;if(critical)criticalTotal+=1;
+      const kg=weightKg(row?.store_weight),band=bandOf(row?.LastActionTime,now),action=String(row?.LastAction_name||'-').trim()||'-',manager=String(row?.store_manager_display??'()'),plan=parseTime(row?.plan_leave_time),overdue=Number.isFinite(plan)&&now>plan,critical=overdue&&band==='over48';
+      totalWeightKg+=kg;bandTotals[band]=(bandTotals[band]||0)+1;addCount(actions,action);addCount(parcelStates,String(row?.state_name||'-'));addRawCount(managerPhones,manager);if(overdue)overdueTotal+=1;if(critical)criticalTotal+=1;
       const bag=String(row?.pack_num||'').trim(),hasBag=!!bag&&bag!=='-'&&bag!=='--';if(hasBag){baggedParcels+=1;bags.add(bag);}
       const hubRaw=row?.dst_hub_name,hub=cleanName(hubRaw),store=cleanName(row?.dst_store_name);let route='other',dest='';
       if(isOwnHub(hubRaw)){route='fd';dest=store;if(store)addGroup(fd,store,kg);}else if(hub){route='lh';dest=hub;addGroup(lh,hub,kg);}
@@ -89,7 +90,7 @@ export async function buildFullAnalytics(conn:any,branch:any,requestedPageSize=D
   const complete=scan.complete&&scanned===total;
   const snapshotAvailable=complete&&branchId>0?await persistSnapshot(branchId,snapshotId,snapshotPages,total,sourceAt,expiresAt):false;
   return{
-    ...scan,complete:complete&&snapshotAvailable,reason:!complete?scan.reason:snapshotAvailable?null:'snapshot_write_failed',schemaVersion:9,total,scanned,pages,snapshotStore:snapshotAvailable?'live_cache_pages':null,snapshotId:snapshotAvailable?snapshotId:null,snapshotPages:snapshotAvailable?snapshotPages.length:0,snapshotExpiresAt:snapshotAvailable?expiresAt:null,
+    ...scan,complete:complete&&snapshotAvailable,reason:!complete?scan.reason:snapshotAvailable?null:'snapshot_write_failed',schemaVersion:10,total,scanned,pages,snapshotStore:snapshotAvailable?'live_cache_pages':null,snapshotId:snapshotAvailable?snapshotId:null,snapshotPages:snapshotAvailable?snapshotPages.length:0,snapshotExpiresAt:snapshotAvailable?expiresAt:null,
     totalWeightKg:Math.round(totalWeightKg*1000)/1000,avgWeightKg:scanned?Math.round((totalWeightKg/scanned)*1000)/1000:0,baggedParcels,uniqueBags:bags.size,overdueTotal,criticalTotal,bandTotals,
     fd:sortedGroups(fd),lh:sortedGroups(lh),actions:sortedCounts(actions),parcelStates:sortedCounts(parcelStates),managerPhones:sortedCounts(managerPhones),cells:[...cells.values()].map((x)=>({...x,w:Math.round(x.w*1000)/1000})),updatedAt:sourceAt
   };
