@@ -66,6 +66,7 @@ Deno.serve(async(req)=>{
       else await db('ms_connection',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify(patch)});
       await db(`branches?id=eq.${branchId}`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify({store_id:found.queryTemplate.store_id||null,updated_at:new Date().toISOString()})});
       await db(`live_cache_pages?branch_id=eq.${branchId}`,{method:'DELETE'});await db(`summary_cache?branch_id=eq.${branchId}`,{method:'DELETE'});await db(`cache_refresh_leases?branch_id=eq.${branchId}`,{method:'DELETE'});
+      try{await db(`full_snapshot_pages?branch_id=eq.${branchId}`,{method:'DELETE'});}catch{}
       return json({ok:true,data:{branchId,storeId:found.queryTemplate.store_id}});
     }
 
@@ -87,7 +88,7 @@ Deno.serve(async(req)=>{
       if(c&&new Date(c.expires_at).getTime()>Date.now())return json({ok:true,data:c.payload,meta:{cache:'hit',expiresAt:c.expires_at,ttlMs:Math.max(0,new Date(c.expires_at).getTime()-Date.now()),branchId}});
       const conn=await getConnection(branchId);
       try{
-        const analytics=await buildFullAnalytics(conn,branch,5000),sourceAt=new Date().toISOString(),ttlMs=analytics.complete?15*60_000:5*60_000,expiresAt=new Date(Date.now()+ttlMs).toISOString(),payload={...analytics,sourceAt,branchId},hash=await hashSummary(payload);
+        const analytics=await buildFullAnalytics(conn,branch,5000),sourceAt=new Date().toISOString(),ttlMs=analytics.complete?30*60_000:5*60_000,expiresAt=new Date(Date.now()+ttlMs).toISOString(),payload={...analytics,sourceAt,branchId},hash=await hashSummary(payload);
         await db('summary_cache?on_conflict=cache_key',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({cache_key:cacheKey,branch_id:branchId,payload,content_hash:hash,source_updated_at:sourceAt,expires_at:expiresAt})});
         await updateConnectionHealth(conn,true);
         return json({ok:true,data:payload,meta:{cache:'miss',ttlMs,branchId}});
