@@ -64,7 +64,7 @@ export async function buildFullAnalytics(conn:any,branch:any,requestedPageSize=D
   const collected:any=await collectSnapshot((p:number,size:number,totalHint:number)=>fetchLivePage(conn,p,size,totalHint),pageSize);
   const {rowPages,...scan}=collected;
   const {total,pages}=scan;
-  if(!rowPages?.length)return {...scan,branchId,snapshotStore:null,snapshotId:null,snapshotPages:0,snapshotExpiresAt:null,updatedAt:new Date().toISOString(),schemaVersion:7};
+  if(!rowPages?.length)return {...scan,branchId,snapshotStore:null,snapshotId:null,snapshotPages:0,snapshotExpiresAt:null,updatedAt:new Date().toISOString(),schemaVersion:8};
 
   const now=Date.now(),sourceAt=new Date(now).toISOString(),snapshotId=crypto.randomUUID(),expiresAt=new Date(now+SNAPSHOT_TTL_MS).toISOString();
   const isOwnHub=ownHubMatcher(branch),fd=new Map<string,any>(),lh=new Map<string,any>(),actions=new Map<string,number>(),parcelStates=new Map<string,number>(),managerPhones=new Map<string,number>(),bags=new Set<string>(),cells=new Map<string,any>(),bandTotals:Record<string,number>=Object.fromEntries(BANDS.map((b)=>[b,0])),snapshotPages:any[]=[];
@@ -89,7 +89,7 @@ export async function buildFullAnalytics(conn:any,branch:any,requestedPageSize=D
   const complete=scan.complete&&scanned===total;
   const snapshotAvailable=complete&&branchId>0?await persistSnapshot(branchId,snapshotId,snapshotPages,total,sourceAt,expiresAt):false;
   return{
-    ...scan,complete:complete&&snapshotAvailable,reason:!complete?scan.reason:snapshotAvailable?null:'snapshot_write_failed',schemaVersion:7,total,scanned,pages,snapshotStore:snapshotAvailable?'live_cache_pages':null,snapshotId:snapshotAvailable?snapshotId:null,snapshotPages:snapshotAvailable?snapshotPages.length:0,snapshotExpiresAt:snapshotAvailable?expiresAt:null,
+    ...scan,complete:complete&&snapshotAvailable,reason:!complete?scan.reason:snapshotAvailable?null:'snapshot_write_failed',schemaVersion:8,total,scanned,pages,snapshotStore:snapshotAvailable?'live_cache_pages':null,snapshotId:snapshotAvailable?snapshotId:null,snapshotPages:snapshotAvailable?snapshotPages.length:0,snapshotExpiresAt:snapshotAvailable?expiresAt:null,
     totalWeightKg:Math.round(totalWeightKg*1000)/1000,avgWeightKg:scanned?Math.round((totalWeightKg/scanned)*1000)/1000:0,baggedParcels,uniqueBags:bags.size,overdueTotal,criticalTotal,bandTotals,
     fd:sortedGroups(fd),lh:sortedGroups(lh),actions:sortedCounts(actions),parcelStates:sortedCounts(parcelStates),managerPhones:sortedCounts(managerPhones),cells:[...cells.values()].map((x)=>({...x,w:Math.round(x.w*1000)/1000})),updatedAt:sourceAt
   };

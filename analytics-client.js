@@ -1,4 +1,4 @@
-import {supabase as client} from './auth-client.js?v=20260906-manager-lossless-v1';
+import {supabase as client} from './auth-client.js?v=20260906-anchored-scan-v1';
 const URL='https://afhnfnfbqdqqzrghovfc.supabase.co';
 const KEY='sb_publishable_4GStzbYK3_BhthidusT_hw_DqtzC7qE';
 let generation=0,loading=false,nextAt=0,timer;
@@ -17,7 +17,7 @@ export async function load(){
   const res=await fetch(`${URL}/rest/v1/summary_cache?branch_id=eq.${branch}&cache_key=eq.b:${branch}:summary:full-analytics-v1&select=payload,expires_at&limit=1`,{headers,cache:'no-store'});
   if(!res.ok)throw new Error('อ่านภาพรวมไม่ได้');
   const cached=(await res.json())[0];if(seq!==generation)return;
-  const compatible=cached?.payload?.schemaVersion===7;
+  const compatible=cached?.payload?.schemaVersion===8;
   if(compatible)publish(cached.payload,cached.expires_at);
   if(compatible&&Date.parse(cached.expires_at)>Date.now()){
    emit(cached.payload.complete?'ready':'incomplete',{expiresAt:cached.expires_at});schedule(Math.max(15000,Date.parse(cached.expires_at)-Date.now()+1000));return;
