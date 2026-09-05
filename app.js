@@ -1,4 +1,4 @@
-import {supabase} from './auth-client.js?v=20260906-manager-full-v2';
+import {supabase} from './auth-client.js?v=20260906-adaptive-scan-v1';
 
 const CONFIG = {
   supabaseUrl: 'https://afhnfnfbqdqqzrghovfc.supabase.co',
