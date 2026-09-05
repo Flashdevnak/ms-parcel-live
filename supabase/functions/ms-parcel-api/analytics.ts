@@ -1,7 +1,7 @@
 import { fetchLivePage } from './ms.ts';
 
 const DEFAULT_PAGE_SIZE = 5000;
-const MAX_PAGES = 80;
+const MAX_PAGES = 30;
 const BANDS = ['under3','3to6','6to9','9to12','12to16','16to22','22to24','24to48','over48','unknown'];
 function cleanName(value:unknown){const raw=String(value??'').trim();if(!raw)return'';return raw.replace(/^\s*(?:(?:\([^)]*\)|（[^）]*）)\s*)+/,'').trim()||raw;}
 function normalize(value:unknown){return cleanName(value).toUpperCase().replace(/^\d+\s*/,'').replace(/\s+/g,' ').trim();}
@@ -19,7 +19,7 @@ export async function buildFullAnalytics(conn:any,branch:any,requestedPageSize=D
   const pageSize=Math.max(500,Math.min(10000,Number(requestedPageSize)||DEFAULT_PAGE_SIZE)),first=await fetchLivePage(conn,1,pageSize),total=Number(first.total||0),observed=first.rows.length;
   if(total>observed&&observed<=100&&pageSize>100)return{complete:false,reason:'source_page_cap',total,scanned:observed,sourcePageSize:observed,requestedPageSize:pageSize,updatedAt:new Date().toISOString()};
   const effectivePageSize=Math.max(1,observed||pageSize),pages=Math.max(1,Math.ceil(total/effectivePageSize));
-  if(pages>MAX_PAGES)return{complete:false,reason:'too_many_pages',total,scanned:observed,sourcePageSize:effectivePageSize,requestedPageSize:pageSize,pages,updatedAt:new Date().toISOString()};
+  if(pages>MAX_PAGES)return{complete:false,reason:'too_many_pages',total,scanned:observed,sourcePageSize:effectivePageSize,requestedPageSize:pageSize,pages,maxPages:MAX_PAGES,updatedAt:new Date().toISOString()};
   const now=Date.now(),isOwnHub=ownHubMatcher(branch),fd=new Map<string,any>(),lh=new Map<string,any>(),actions=new Map<string,number>(),parcelStates=new Map<string,number>(),bags=new Set<string>(),cells=new Map<string,any>(),bandTotals:Record<string,number>=Object.fromEntries(BANDS.map((b)=>[b,0]));
   let scanned=0,totalWeightKg=0,baggedParcels=0,overdueTotal=0,criticalTotal=0;
   const consume=(rows:any[])=>{for(const row of rows){
@@ -28,8 +28,7 @@ export async function buildFullAnalytics(conn:any,branch:any,requestedPageSize=D
     const bag=String(row?.pack_num||'').trim(),hasBag=!!bag&&bag!=='-'&&bag!=='--';if(hasBag){baggedParcels+=1;bags.add(bag);}
     const hubRaw=row?.dst_hub_name,hub=cleanName(hubRaw),store=cleanName(row?.dst_store_name);let route='other',dest='';
     if(isOwnHub(hubRaw)){route='fd';dest=store;if(store)addGroup(fd,store,kg);}else if(hub){route='lh';dest=hub;addGroup(lh,hub,kg);}
-    const key=cellKey(route,dest,band,action),cell=cells.get(key)||{r:route,d:dest,b:band,a:action,c:0,w:0,g:0,o:0,q:0,t:0};cell.c+=1;cell.w+=kg;if(hasBag)cell.g+=1;if(overdue)cell.o+=1;if(critical)cell.q+=1;
-    const latest=parseTime(row?.LastActionTime);if(Number.isFinite(latest)&&latest>cell.t)cell.t=latest;cells.set(key,cell);
+    const key=cellKey(route,dest,band,action),cell=cells.get(key)||{r:route,d:dest,b:band,a:action,c:0,w:0,g:0,o:0,q:0,t:0};cell.c+=1;cell.w+=kg;if(hasBag)cell.g+=1;if(overdue)cell.o+=1;if(critical)cell.q+=1;const latest=parseTime(row?.LastActionTime);if(Number.isFinite(latest)&&latest>cell.t)cell.t=latest;cells.set(key,cell);
   }};
   consume(first.rows);
   for(let start=2;start<=pages;start+=3){const nums=[start,start+1,start+2].filter((p)=>p<=pages),batch=await Promise.all(nums.map((p)=>fetchLivePage(conn,p,pageSize)));for(const page of batch)consume(page.rows);}
