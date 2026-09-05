@@ -7,7 +7,9 @@
   <title>MS Parcel Live</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
   <link rel="stylesheet" href="style.css?v=20260905-3" />
+  <link rel="stylesheet" href="inspector.css?v=20260905-1" />
   <script type="module" src="app.js?v=20260905-3"></script>
+  <script type="module" src="inspector.js?v=20260905-1"></script>
 </head>
 <body>
   <header class="site-header">
@@ -62,12 +64,62 @@
       <div class="smart-filter-grid" id="smart-filters">
         <button class="smart-filter active" type="button" data-risk="all"><span>ทั้งหมดในหน้า</span><strong id="risk-all">0</strong></button>
         <button class="smart-filter" type="button" data-risk="under24"><span>ค้าง &lt;24 ชม.</span><strong id="risk-under24">0</strong></button>
-        <button class="smart-filter" type="button" data-risk="24to48"><span>ค้าง 24–48 ชม.</span><strong id="risk-24to48">0</strong></button>
-        <button class="smart-filter danger" type="button" data-risk="over48"><span>ค้าง &gt;48 ชม.</span><strong id="risk-over48">0</strong></button>
-        <button class="smart-filter missed" type="button" data-risk="missed"><span>ตกรอบรถ</span><strong id="risk-missed">0</strong></button>
-        <button class="smart-filter warning" type="button" data-risk="dueSoon"><span>ใกล้ตกรอบ ≤60 นาที</span><strong id="risk-due-soon">0</strong></button>
+        <button class="smart-filter" type="button" data-risk="24to48"><span>เกิน SLA 24 ชม.</span><strong id="risk-24to48">0</strong></button>
+        <button class="smart-filter danger" type="button" data-risk="over48"><span>เกิน SLA 48 ชม.</span><strong id="risk-over48">0</strong></button>
+        <button class="smart-filter missed" type="button" data-risk="missed"><span>เกินเวลาแผน</span><strong id="risk-missed">0</strong></button>
+        <button class="smart-filter warning" type="button" data-risk="dueSoon"><span>ใกล้เวลาแผน ≤60 นาที</span><strong id="risk-due-soon">0</strong></button>
       </div>
-      <p id="smart-note" class="sync-text">เวลาค้างนับจาก “เวลาถึงตามจริง” · ตกรอบรถ = เวลาแผนออกผ่านแล้วแต่ยังอยู่ในรายการคงคลัง</p>
+
+      <div class="sla-band-wrap">
+        <div class="sla-band-head">
+          <strong>SLA อายุคงคลังช่วงย่อย &lt;24 ชม.</strong>
+          <span>รวม &lt;24 ชม. <b id="risk-under24-total">0</b> รายการ · กดช่วงเพื่อกรองในหน้าปัจจุบัน</span>
+        </div>
+        <div class="sla-band-grid">
+          <button class="smart-subfilter" type="button" data-age="under3"><span>&lt;3 ชม.</span><strong id="risk-under3">0</strong></button>
+          <button class="smart-subfilter" type="button" data-age="3to6"><span>3–6 ชม.</span><strong id="risk-3to6">0</strong></button>
+          <button class="smart-subfilter" type="button" data-age="6to9"><span>6–9 ชม.</span><strong id="risk-6to9">0</strong></button>
+          <button class="smart-subfilter" type="button" data-age="9to12"><span>9–12 ชม.</span><strong id="risk-9to12">0</strong></button>
+          <button class="smart-subfilter" type="button" data-age="12to16"><span>12–16 ชม.</span><strong id="risk-12to16">0</strong></button>
+          <button class="smart-subfilter" type="button" data-age="16to22"><span>16–22 ชม.</span><strong id="risk-16to22">0</strong></button>
+          <button class="smart-subfilter" type="button" data-age="22to24"><span>22–24 ชม.</span><strong id="risk-22to24">0</strong></button>
+        </div>
+        <p id="sla-band-note" class="sync-text sla-band-note">ช่วงย่อยจะคำนวณจาก “เวลาถึงตามจริง” ในข้อมูลที่โหลดอยู่แล้ว</p>
+      </div>
+
+      <p id="smart-note" class="sync-text">เวลาค้างนับจาก “เวลาถึงตามจริง” · เกินเวลาแผน = เวลาแผนออกผ่านแล้วแต่ยังอยู่ในรายการคงคลัง</p>
+    </section>
+
+    <section class="panel bag-panel">
+      <div class="smart-head">
+        <div>
+          <strong>Bagging Inspector</strong>
+          <span>ตรวจเฉพาะพัสดุที่มีเลขแบ็กกิ้ง · ตัวกรองดึงจากข้อมูลแบ็กกิ้งในหน้าปัจจุบันเท่านั้น</span>
+        </div>
+        <div class="smart-actions">
+          <button id="copy-bag-btn" class="btn btn-header" type="button">คัดลอกสรุปแบ็กกิ้ง</button>
+          <button id="bag-reset-btn" class="btn btn-header" type="button">ล้างตัวกรอง</button>
+        </div>
+      </div>
+
+      <div class="bag-metric-grid">
+        <article class="bag-metric"><span>พัสดุมีแบ็กกิ้ง</span><strong id="bag-parcels">0</strong></article>
+        <article class="bag-metric"><span>เลขแบ็กไม่ซ้ำ</span><strong id="bag-count">0</strong></article>
+        <article class="bag-metric danger"><span>แบ็กผิดปกติ</span><strong id="bag-anomaly">0</strong></article>
+        <article class="bag-metric warning"><span>แบ็กเกินเวลาแผน</span><strong id="bag-plan-overdue">0</strong></article>
+        <article class="bag-metric warning"><span>ไม่อัปเดต &gt;6 ชม.</span><strong id="bag-stale">0</strong></article>
+      </div>
+
+      <div class="bag-toolbar">
+        <label><span>โหมดข้อมูล</span><select id="bag-mode"><option value="all" selected>ทั้งหมด</option><option value="bagging">เฉพาะมีเลขแบ็กกิ้ง</option></select></label>
+        <label><span>เลขแบ็กกิ้ง</span><input id="bag-search" type="search" placeholder="ค้นหาเลขแบ็กกิ้ง" /></label>
+        <label><span>สถานะการดำเนินการล่าสุด</span><select id="bag-action-filter"><option value="">ทุกการดำเนินการ</option></select></label>
+        <label><span>HUB ปลายทาง</span><select id="bag-hub-filter"><option value="">ทุก HUB</option></select></label>
+        <label><span>สาขาปลายทาง</span><select id="bag-branch-filter"><option value="">ทุกสาขา</option></select></label>
+        <label><span>ตรวจความผิดปกติ</span><select id="bag-issue-filter"><option value="all">ทั้งหมด</option><option value="anomaly">แบ็กผิดปกติทั้งหมด</option><option value="mixedDestination">ปลายทางปนกัน</option><option value="mixedAction">การดำเนินการล่าสุดปนกัน</option><option value="mixedState">สถานะพัสดุปนกัน</option><option value="planOverdue">เกินเวลาแผน</option><option value="stale6h">ไม่มีการอัปเดตเกิน 6 ชม.</option><option value="critical">วิกฤต: &gt;48 ชม. + เกินเวลาแผน</option></select></label>
+      </div>
+      <div id="bag-alert-list" class="bag-alert-list"></div>
+      <p id="bag-note" class="sync-text">ค่าเริ่มต้นคือทั้งหมด · ถ้า HUB/สาขามี (xxx) ด้านหน้า ระบบจะตัดออกและใช้เฉพาะชื่อ</p>
     </section>
 
     <section class="panel toolbar-panel">
