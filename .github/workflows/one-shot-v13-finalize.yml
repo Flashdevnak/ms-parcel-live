@@ -1,0 +1,51 @@
+name: One-shot v13 final asset bump
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one-shot-v13-finalize.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Force bump production frontend assets
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('index.html')
+          s = p.read_text()
+          import re
+          s = re.sub(r'(style\.css\?v=)[^"\']+', r'\g<1>20260906-v13-final', s)
+          s = re.sub(r'(inspector\.css\?v=)[^"\']+', r'\g<1>20260906-v13-final', s)
+          s = re.sub(r'(shell\.css\?v=)[^"\']+', r'\g<1>20260906-v13-final', s)
+          s = re.sub(r'(app\.js\?v=)[^"\']+', r'\g<1>20260906-v13-final', s)
+          s = re.sub(r'(inspector\.js\?v=)[^"\']+', r'\g<1>20260906-v13-final', s)
+          s = re.sub(r'(ops\.js\?v=)[^"\']+', r'\g<1>20260906-v13-final', s)
+          s = re.sub(r'(shell\.js\?v=)[^"\']+', r'\g<1>20260906-v13-final', s)
+          p.write_text(s)
+      - name: Validate frontend JavaScript
+        run: |
+          node --check app.js
+          node --check inspector.js
+          node --check analytics-client.js
+          node --check snapshot-client.js
+          node --check ops.js
+          node --check shell.js
+      - name: Commit asset bump
+        shell: bash
+        run: |
+          if git diff --quiet -- index.html; then
+            echo 'No asset bump needed.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html
+          git commit -m 'release: force bump v13 production assets'
+          git push
