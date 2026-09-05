@@ -22,26 +22,37 @@ function snapshotRow(r:any){return[
   r?.pno??'',r?.state_name??'',r?.store_weight??'',r?.plan_leave_time??'',r?.real_arrive_time??'',r?.pack_num??'',
   r?.LastAction_name??'',r?.LastActionTime??'',r?.staff_info_phone??'',r?.store_manager_phone??'',r?.dst_hub_name??'',r?.dst_store_name??''
 ];}
+function snapshotPrefix(branchId:number,snapshotId:string){return`b:${branchId}:snapshot:${snapshotId}:p:`;}
+function snapshotKey(branchId:number,snapshotId:string,pageNo:number){return`${snapshotPrefix(branchId,snapshotId)}${String(pageNo).padStart(4,'0')}`;}
 
 async function persistSnapshot(branchId:number,snapshotId:string,pages:any[],sourceTotal:number,sourceAt:string,expiresAt:string){
+  const prefix=snapshotPrefix(branchId,snapshotId);
   try{
     for(let start=0;start<pages.length;start+=SNAPSHOT_WRITE_BATCH){
-      const records=pages.slice(start,start+SNAPSHOT_WRITE_BATCH).map((rows,offset)=>({
-        branch_id:branchId,
-        snapshot_id:snapshotId,
-        page_no:start+offset+1,
-        payload:rows,
-        item_count:rows.length,
-        source_total:sourceTotal,
-        source_updated_at:sourceAt,
-        expires_at:expiresAt,
-      }));
-      await db('full_snapshot_pages',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify(records)});
+      const records=pages.slice(start,start+SNAPSHOT_WRITE_BATCH).map((rows,offset)=>{
+        const pageNo=start+offset+1;
+        return{
+          cache_key:snapshotKey(branchId,snapshotId,pageNo),
+          branch_id:branchId,
+          payload:rows,
+          item_count:rows.length,
+          source_total:sourceTotal,
+          source_updated_at:sourceAt,
+          expires_at:expiresAt,
+          content_hash:null,
+          previous_hash:null,
+          delta_payload:null,
+          unchanged_streak:0,
+        };
+      });
+      await db('live_cache_pages?on_conflict=cache_key',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(records)});
     }
-    await db(`full_snapshot_pages?branch_id=eq.${branchId}&snapshot_id=neq.${encodeURIComponent(snapshotId)}`,{method:'DELETE'});
+    const oldBefore=new Date(Date.now()-60_000).toISOString();
+    const pattern=encodeURIComponent(`b:${branchId}:snapshot:%`);
+    await db(`live_cache_pages?branch_id=eq.${branchId}&cache_key=like.${pattern}&expires_at=lt.${encodeURIComponent(oldBefore)}`,{method:'DELETE'});
     return true;
   }catch{
-    try{await db(`full_snapshot_pages?branch_id=eq.${branchId}&snapshot_id=eq.${encodeURIComponent(snapshotId)}`,{method:'DELETE'});}catch{}
+    try{await db(`live_cache_pages?branch_id=eq.${branchId}&cache_key=like.${encodeURIComponent(prefix+'%')}`,{method:'DELETE'});}catch{}
     return false;
   }
 }
@@ -77,7 +88,7 @@ export async function buildFullAnalytics(conn:any,branch:any,requestedPageSize=D
   const complete=scanned>=total;
   const snapshotAvailable=complete&&branchId>0?await persistSnapshot(branchId,snapshotId,snapshotPages,total,sourceAt,expiresAt):false;
   return{
-    complete,total,scanned,sourcePageSize:effectivePageSize,requestedPageSize:pageSize,pages,snapshotId:snapshotAvailable?snapshotId:null,snapshotPages:snapshotAvailable?pages:0,snapshotExpiresAt:snapshotAvailable?expiresAt:null,
+    complete,total,scanned,sourcePageSize:effectivePageSize,requestedPageSize:pageSize,pages,snapshotStore:snapshotAvailable?'live_cache_pages':null,snapshotId:snapshotAvailable?snapshotId:null,snapshotPages:snapshotAvailable?snapshotPages.length:0,snapshotExpiresAt:snapshotAvailable?expiresAt:null,
     totalWeightKg:Math.round(totalWeightKg*1000)/1000,avgWeightKg:scanned?Math.round((totalWeightKg/scanned)*1000)/1000:0,baggedParcels,uniqueBags:bags.size,overdueTotal,criticalTotal,bandTotals,
     fd:sortedGroups(fd),lh:sortedGroups(lh),actions:sortedCounts(actions),parcelStates:sortedCounts(parcelStates),managerPhones:sortedCounts(managerPhones),cells:[...cells.values()].map((x)=>({...x,w:Math.round(x.w*1000)/1000})),updatedAt:sourceAt
   };
