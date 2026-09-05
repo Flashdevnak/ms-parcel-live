@@ -77,7 +77,7 @@
 - [x] Existing production-approved `transfer-summary` lease is reused only for the short analytics leader election, avoiding a DB policy migration.
 - [x] HAR upload clears live/snapshot cache for only the selected branch.
 - [x] Backend source passes `deno check`; frontend source passes all `node --check` gates.
-- [ ] CP-v13-11: deploy current GitHub Edge v13 source to production Supabase (production is still v12 until this completes).
+- [x] CP-v13-11: PASS — production Edge v13 ACTIVE, verify_jwt=false, verified 2026-09-06. No schema migration.
 - [ ] CP-v13-12: after Edge activation verify NE1 `scanned == total`, accepted MS page size, source page count, snapshot page count, manager filter, parcel-number copy, LH/FD graphs and bag groups against live data.
 - [ ] CP-v13-13: only after CP-v13-12 passes, force-bump frontend asset versions and run final production smoke test.
 
@@ -85,7 +85,7 @@
 - [x] Direct DB migration is no longer required.
 - [x] GitHub fallback deployment workflow is manual-only and deploys Edge via Supabase CLI `--use-api`.
 - [x] Checked repository + `github-pages` environment credential aliases without exposing values.
-- [ ] No Supabase management token is currently configured in GitHub, so GitHub cannot perform CP-v13-11 yet.
+- [x] Historical credential gate resolved: production v13 deployment confirmed through Supabase management connector. No token values inspected.
 
 ## Advisor note
 - [x] Security Advisor has no new RLS/schema warning; remaining `Leaked Password Protection Disabled` is the known Free-plan Auth warning.
@@ -110,3 +110,16 @@
 - v9-4: SLA sub-bands + Bagging Inspector implemented.
 - v9-5: compact dashboard-first SPA + shared time filters.
 - v9-6: LH/FD semantics, cascading filters, latest-action page, weight page, and operational bagging detail implemented.
+
+
+## Workspace upgrade — 2026-09-06
+- Base main: `9bad9c6cfb0f74995b72b42cbb8861259a7193c1`; no rollback/reset, no access to other projects.
+- CP-UX-01 IMPLEMENTED: six workspace views, destination cards, age heatmap, clickable status charts, FD/LH weight cards, destination-first bag groups, parcel detail drawer.
+- CP-DATA-01 IMPLEMENTED: bounded source scan with duplicate/missing-ID checks, exact count equality, total consistency, one isolated retry within the same 30-request budget.
+- CP-DATA-02 IMPLEMENTED: no live-page fallback for aggregate totals or copy; explicit readiness/expiry; branch/snapshot identity guards; global filters are not rewritten by live polling.
+- CP-DATA-03 IMPLEMENTED: separate live/analytics timestamps, distinct unknown-age group, manager uses store_manager_phone, mixed bags checked against all members before filtering.
+- CP-TEST-01 LOCAL PASS: Node syntax + tests-data.mjs (bounded scans, moving totals, duplicates, retry, source cap, empty inventory, FD/LH, manager and snapshot checks).
+- CP-TEST-02 PENDING: CI Deno check and tests-ui.mjs; production smoke after deployment.
+- CP-v13-12 NOT PASS: authenticated baseline cache at 2026-09-05 20:03:12 UTC has scanned=67560,total=68065,snapshotId=null. Owner logged in. New backend diagnostics must establish source consistency; never relabel a partial inventory as complete.
+- CP-v13-13 NOT PASS: previous Pages deployment succeeded; final full-data gate remains tied to CP-v13-12.
+- No new migrations, cron, tables, RLS edits or SECURITY DEFINER. Original live TTL logic and summary polling retained.

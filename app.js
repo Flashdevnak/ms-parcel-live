@@ -324,6 +324,7 @@ function applyDelta(delta) {
 function updateLiveDisplay(sourceAt, note = 'live') {
   renderFilters();
   renderRows();
+  window.dispatchEvent(new CustomEvent('ms-live-state',{detail:{total:state.total,count:state.rows.length,sourceAt,branchId:branchId()}}));
   $('last-refresh').textContent = `ตรวจ MS ล่าสุด ${new Date(sourceAt || Date.now()).toLocaleString('th-TH')} · ${note}`;
   $('source-sync').textContent = `${fmt.format(state.total)} รายการ · ${currentBranch()?.code || ''}`;
   setConnection('ok', 'ออนไลน์');
@@ -374,6 +375,7 @@ function applyEdgeLive(out) {
 
 function renderSummary(d) {
   d = d || {};
+  window.dispatchEvent(new CustomEvent('ms-summary-state',{detail:d}));
   $('m-total').textContent = fmt.format(d.total || 0);
   $('m-day1').textContent = fmt.format(d.day1 || 0);
   $('m-day2').textContent = fmt.format(d.day2 || 0);
@@ -414,6 +416,7 @@ async function refreshStatus(preferred = 0) {
   state.branchId = chosen;
   if (chosen) localStorage.setItem('ms-parcel-branch-id', String(chosen));
   renderBranchSelect();
+  window.dispatchEvent(new CustomEvent('ms-branch-ready',{detail:{...currentBranch(),id:branchId()}}));
   updateHeaderPermissions();
   const conn = d.connection;
   if (conn?.last_error) setConnection('bad', 'MS มีปัญหา');
@@ -445,6 +448,7 @@ async function boot() {
 
 async function setSession(session) {
   state.session = session;
+  window.dispatchEvent(new CustomEvent('ms-session-reset'));
   clearTimeout(state.timer);
   clearTimeout(state.summaryTimer);
   state.hash = '';
@@ -561,8 +565,7 @@ function fillSelect(id, values) {
 
 function renderFilters() {
   fillSelect('status-filter', unique('state_name'));
-  fillSelect('hub-filter', unique('dst_hub_name'));
-  fillSelect('branch-filter', unique('dst_store_name'));
+  // Global destination filters belong to the full inventory workspace.
 }
 
 function hasLocalFilters() {
@@ -578,8 +581,8 @@ function hasLocalFilters() {
 function filteredRows(now = Date.now()) {
   const q = $('search-input').value.trim().toLowerCase();
   const st = $('status-filter').value;
-  const hub = $('hub-filter').value;
-  const br = $('branch-filter').value;
+  const hub = '';
+  const br = ''; // Full-inventory filters must not filter a live sample.
   let rows = state.rows.filter((r) => {
     if (st && val(r.state_name) !== st) return false;
     if (hub && val(r.dst_hub_name) !== hub) return false;
@@ -791,7 +794,7 @@ $('risk-sort').addEventListener('change', () => {
   state.sortRisk = $('risk-sort').checked;
   renderRows();
 });
-$('copy-risk-btn').addEventListener('click', copyFilteredRows);
+// Full-inventory copy is owned by ops.js; never fall back to live rows.
 
 $('manage-users-btn').addEventListener('click', () => { $('users-dialog').showModal(); loadUsers(); });
 $('users-close').addEventListener('click', () => $('users-dialog').close());
@@ -907,3 +910,4 @@ document.addEventListener('visibilitychange', () => {
 });
 
 boot();
+

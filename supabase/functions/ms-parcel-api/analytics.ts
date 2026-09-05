@@ -1,5 +1,6 @@
 import { db } from './core.ts';
 import { fetchLivePage } from './ms.ts';
+import { collectSnapshot } from './scan.js';
 
 const DEFAULT_PAGE_SIZE = 5000;
 const MAX_PAGES = 30;
@@ -59,10 +60,10 @@ async function persistSnapshot(branchId:number,snapshotId:string,pages:any[],sou
 
 export async function buildFullAnalytics(conn:any,branch:any,requestedPageSize=DEFAULT_PAGE_SIZE){
   const branchId=Number(branch?.id||0),pageSize=Math.max(500,Math.min(10000,Number(requestedPageSize)||DEFAULT_PAGE_SIZE));
-  const first=await fetchLivePage(conn,1,pageSize),total=Number(first.total||0),observed=first.rows.length;
-  if(total>observed&&observed<=100&&pageSize>100)return{complete:false,reason:'source_page_cap',total,scanned:observed,sourcePageSize:observed,requestedPageSize:pageSize,updatedAt:new Date().toISOString()};
-  const effectivePageSize=Math.max(1,observed||pageSize),pages=Math.max(1,Math.ceil(total/effectivePageSize));
-  if(pages>MAX_PAGES)return{complete:false,reason:'too_many_pages',total,scanned:observed,sourcePageSize:effectivePageSize,requestedPageSize:pageSize,pages,maxPages:MAX_PAGES,updatedAt:new Date().toISOString()};
+  const collected:any=await collectSnapshot((p:number,size:number)=>fetchLivePage(conn,p,size),pageSize);
+  const {rowPages,...scan}=collected;
+  const {total,pages}=scan;
+  if(!scan.complete)return {...scan,branchId,snapshotStore:null,snapshotId:null,snapshotPages:0,snapshotExpiresAt:null,updatedAt:new Date().toISOString(),schemaVersion:2};
 
   const now=Date.now(),sourceAt=new Date(now).toISOString(),snapshotId=crypto.randomUUID(),expiresAt=new Date(now+SNAPSHOT_TTL_MS).toISOString();
   const isOwnHub=ownHubMatcher(branch),fd=new Map<string,any>(),lh=new Map<string,any>(),actions=new Map<string,number>(),parcelStates=new Map<string,number>(),managerPhones=new Map<string,number>(),bags=new Set<string>(),cells=new Map<string,any>(),bandTotals:Record<string,number>=Object.fromEntries(BANDS.map((b)=>[b,0])),snapshotPages:any[]=[];
@@ -82,13 +83,11 @@ export async function buildFullAnalytics(conn:any,branch:any,requestedPageSize=D
     }
   };
 
-  consume(first.rows);
-  for(let start=2;start<=pages;start+=3){const nums=[start,start+1,start+2].filter((p)=>p<=pages),batch=await Promise.all(nums.map((p)=>fetchLivePage(conn,p,pageSize)));for(const page of batch)consume(page.rows);}
-
-  const complete=scanned>=total;
+  for(const rows of rowPages)consume(rows);
+  const complete=scanned===total;
   const snapshotAvailable=complete&&branchId>0?await persistSnapshot(branchId,snapshotId,snapshotPages,total,sourceAt,expiresAt):false;
   return{
-    complete,total,scanned,sourcePageSize:effectivePageSize,requestedPageSize:pageSize,pages,snapshotStore:snapshotAvailable?'live_cache_pages':null,snapshotId:snapshotAvailable?snapshotId:null,snapshotPages:snapshotAvailable?snapshotPages.length:0,snapshotExpiresAt:snapshotAvailable?expiresAt:null,
+    ...scan,complete:complete&&snapshotAvailable,reason:snapshotAvailable?null:'snapshot_write_failed',schemaVersion:2,total,scanned,pages,snapshotStore:snapshotAvailable?'live_cache_pages':null,snapshotId:snapshotAvailable?snapshotId:null,snapshotPages:snapshotAvailable?snapshotPages.length:0,snapshotExpiresAt:snapshotAvailable?expiresAt:null,
     totalWeightKg:Math.round(totalWeightKg*1000)/1000,avgWeightKg:scanned?Math.round((totalWeightKg/scanned)*1000)/1000:0,baggedParcels,uniqueBags:bags.size,overdueTotal,criticalTotal,bandTotals,
     fd:sortedGroups(fd),lh:sortedGroups(lh),actions:sortedCounts(actions),parcelStates:sortedCounts(parcelStates),managerPhones:sortedCounts(managerPhones),cells:[...cells.values()].map((x)=>({...x,w:Math.round(x.w*1000)/1000})),updatedAt:sourceAt
   };

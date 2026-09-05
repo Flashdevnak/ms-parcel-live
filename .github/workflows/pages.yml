@@ -31,12 +31,18 @@ jobs:
           node --check snapshot-client.js
           node --check ops.js
           node --check shell.js
+          node --check data-model.js
+          node tests-data.mjs
       - name: Setup Deno
         uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
       - name: Validate Edge TypeScript
         run: deno check supabase/functions/ms-parcel-api/index.ts
+      - name: Verify workspace interactions
+        run: |
+          npm install --prefix /tmp/ms-parcel-ui-test --no-package-lock --no-save jsdom@26.1.0
+          NODE_PATH=/tmp/ms-parcel-ui-test/node_modules node tests-ui.mjs
       - name: Configure Pages
         uses: actions/configure-pages@v5
         with:
@@ -48,3 +54,4 @@ jobs:
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4
+
