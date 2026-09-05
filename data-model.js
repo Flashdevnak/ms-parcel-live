@@ -1,7 +1,8 @@
 export const BANDS=['under3','3to6','6to9','9to12','12to16','16to22','22to24','24to48','over48','unknown'];
 export const LABELS=['<3','3–6','6–9','9–12','12–16','16–22','22–24','24–48','>48','ไม่ทราบ'];
 export const clean=v=>String(v??'').trim().replace(/^\s*(?:(?:\([^)]*\)|（[^）]*）)\s*)+/,'').trim();
-export const managerValue=r=>String(r?.store_manager_display||r?.store_manager_phone||'-').trim()||'-';
+export const managerValue=r=>String(r?.store_manager_display||[r?.store_id&&`(${r.store_id})`,r?.store_name,r?.store_manager_name,r?.store_manager_phone].filter(Boolean).join(' · ')||r?.store_manager_phone||'-').trim()||'-';
+export function decodeSnapshotRow(r){const keys=['pno','state_name','store_weight','plan_leave_time','real_arrive_time','pack_num','LastAction_name','LastActionTime','staff_info_phone'];const out=Object.fromEntries(keys.map((k,i)=>[k,r?.[i]??'']));out.store_manager_display=r?.[9]??'';out.store_id=r?.[10]??'';out.store_name=r?.[11]??'';out.store_manager_name=r?.[12]??'';out.store_manager_phone=r?.[13]??'';out.dst_hub_name=r?.[14]??'';out.dst_store_name=r?.[15]??'';return out;}
 export function time(v){const raw=String(v||'').trim();return Date.parse(/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(raw)&&!/(Z|[+-]\d{2}:?\d{2})$/i.test(raw)?raw.replace(' ','T')+'+07:00':raw);}
 export function band(v,now=Date.now()){const h=(now-time(v))/3600000;if(!Number.isFinite(h)||h<0)return'unknown';return BANDS[[3,6,9,12,16,22,24,48].findIndex((n,i)=>i===7?h<=n:h<n)]||'over48';}
 export function route(r,branch){const hub=clean(r.dst_hub_name),norm=v=>clean(v).toUpperCase().replace(/^\d+\s*/,'').replace(/\s+/g,' ').trim();const code=String(branch?.code||'').trim().replace(/[.*+?^${}()|[\]\\]/g,'\\$&');const own=hub&&((branch?.name&&norm(hub)===norm(branch.name))||(code&&new RegExp(`(^|[^A-Z0-9])${code}(?:_HUB)?([^A-Z0-9]|$)`,'i').test(hub)));return own?{r:'fd',d:clean(r.dst_store_name)||''}:hub?{r:'lh',d:hub}:{r:'other',d:''};}
