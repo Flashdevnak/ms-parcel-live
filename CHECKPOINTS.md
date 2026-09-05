@@ -63,7 +63,18 @@
 - [x] Added top problem-bag shortcuts; clicking a bag filters to that bag immediately.
 - [x] Added clipboard summary for filtered bag groups.
 - [x] Bagging Inspector is a frontend-only module (`inspector.js` + `inspector.css`) and introduces zero additional Edge/MS polling.
-- [x] CI now validates both `app.js` and `inspector.js`; latest Inspector deployment passed all Pages steps.
+
+## Dashboard / page shell — zero incremental backend quota
+- [x] Split long single page into four SPA views: `แดชบอร์ด`, `พัสดุคงคลัง`, `SLA & Backlog`, `ตรวจแบ็กกิ้ง`.
+- [x] Dashboard is the default first view and keeps the existing live engine/session/cache running without page reload.
+- [x] Shared result table is moved between Parcel/SLA/Bagging views instead of duplicated, so navigation adds no Edge/MS request.
+- [x] Dashboard supports multi-select time bands: `<3`, `3–6`, `6–9`, `9–12`, `12–16`, `16–22`, `22–24`, `24–48`, `>48`.
+- [x] Time selection persists locally in browser `localStorage`; empty selection is preserved correctly.
+- [x] Added `คัดลอกรวมตามเวลาที่เลือก`: summary by time band + destination + parcel list + bagging + latest action, using only rows already loaded.
+- [x] Added `เปิดรายการช่วงที่เลือก` to carry multiple selected bands into SLA view without a new backend call.
+- [x] Filters are isolated between Dashboard/Parcel/SLA/Bagging to prevent stale filters from corrupting dashboard counts.
+- [x] Added responsive sticky top navigation; mobile navigation scrolls inside its own bar rather than widening the page.
+- [x] CI validates `app.js`, `inspector.js`, and `shell.js` before GitHub Pages deploy.
 
 ## Advisor note
 - [x] Security Advisor has no new RLS/schema warning; remaining `Leaked Password Protection Disabled` is the known Free-plan Auth warning.
@@ -86,3 +97,4 @@
 - v9-2: async admin form reset bug fixed and Store ID-from-HAR UX clarified.
 - v9-3: zero-quota Smart Backlog Monitor implemented.
 - v9-4: SLA sub-bands + Bagging Inspector implemented; frontend JavaScript validation expanded to both modules.
+- v9-5: dashboard-first four-view SPA + multi-select time copy implemented with zero incremental backend quota.
