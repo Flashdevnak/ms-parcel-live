@@ -1,0 +1,47 @@
+name: One-shot v13 fallback cleanup
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one-shot-v13-cleanup.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clean fallback operational wording
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('app.js')
+          s = p.read_text()
+          replacements = {
+              "missed: 'ตกรอบรถ'": "missed: 'เกินเวลาแผน'",
+              "dueSoon: 'ใกล้ตกรอบ ≤60 นาที'": "dueSoon: 'ใกล้เวลาแผน ≤60 นาที'",
+              "`ตกรอบ ${esc(formatMinutes(risk.overdueMinutes))}`": "`เกินเวลาแผน ${esc(formatMinutes(risk.overdueMinutes))}`",
+              "parts.push(`ตกรอบ ${formatMinutes(risk.overdueMinutes)}`)": "parts.push(`เกินเวลาแผน ${formatMinutes(risk.overdueMinutes)}`)",
+              "`คำนวณจาก ${fmt.format(state.rows.length)} รายการในหน้าปัจจุบัน${unknownText} · เวลาค้างนับจาก “เวลาถึงตามจริง” · ไม่ใช้โควต้าเพิ่ม`": "`รายการสด ${fmt.format(state.rows.length)}${unknownText}`",
+              "'ทั้งหมดในหน้า'": "'ทั้งหมด'",
+          }
+          for old, new in replacements.items():
+              s = s.replace(old, new)
+          p.write_text(s)
+      - name: Validate fallback JavaScript
+        run: node --check app.js
+      - name: Commit cleanup
+        shell: bash
+        run: |
+          if git diff --quiet -- app.js; then
+            echo 'No app.js cleanup needed.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app.js
+          git commit -m 'ui: clean fallback operational wording'
+          git push
