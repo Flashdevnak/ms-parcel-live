@@ -17,9 +17,12 @@ const TIME_BANDS = [
 const shellState = {
   page: 'dashboard',
   selectedBands: new Set(TIME_BANDS.map(([key]) => key)),
-  useSelectedAsFilter: false,
   scheduled: false,
 };
+
+function text(el) {
+  return String(el?.textContent ?? '').trim();
+}
 
 function parseMsTime(value) {
   const raw = String(value ?? '').trim();
@@ -55,10 +58,6 @@ function bandLabel(key) {
   return TIME_BANDS.find(([band]) => band === key)?.[1] || key;
 }
 
-function text(el) {
-  return String(el?.textContent ?? '').trim();
-}
-
 function parseRows(now = Date.now()) {
   return [...document.querySelectorAll('#table-body tr')].map((tr, index) => {
     const cells = tr.cells;
@@ -69,8 +68,8 @@ function parseRows(now = Date.now()) {
     const ageHours = Number.isFinite(arrivedAt) && now >= arrivedAt ? (now - arrivedAt) / 3600000 : null;
     const hub = cleanDestination(text(cells[9]?.querySelector('.cell-stack > span')));
     const branch = cleanDestination(text(cells[9]?.querySelector('.cell-stack > small')));
-    const pack = text(cells[5]);
-    const validBag = Boolean(pack && pack !== '-' && pack !== '--');
+    const packRaw = text(cells[5]);
+    const pack = packRaw && packRaw !== '-' && packRaw !== '--' ? packRaw : '';
     return {
       tr,
       index,
@@ -81,11 +80,11 @@ function parseRows(now = Date.now()) {
       ageHours,
       band: ageBand(ageHours),
       planOverdue: Number.isFinite(planAt) && now > planAt,
-      pack: validBag ? pack : '',
-      latestAction: text(cells[7]?.querySelector('.cell-stack > span')),
+      pack,
+      latestAction: text(cells[7]?.querySelector('.cell-stack > span')) || '-',
       latestTime: text(cells[7]?.querySelector('.cell-stack > small')),
-      hub,
-      branch,
+      hub: hub || '-',
+      branch: branch || '-',
       destination: [hub, branch].filter(Boolean).join(' / ') || '-',
     };
   });
@@ -109,18 +108,56 @@ function selectedLabels() {
   return TIME_BANDS.filter(([key]) => shellState.selectedBands.has(key)).map(([, label]) => label);
 }
 
+function isAllSelected() {
+  return shellState.selectedBands.size === TIME_BANDS.length;
+}
+
 function updateTimeControls() {
   document.querySelectorAll('[data-dashboard-band]').forEach((input) => {
     input.checked = shellState.selectedBands.has(input.dataset.dashboardBand);
   });
   const labels = selectedLabels();
-  const textValue = labels.length ? labels.join(' + ') : 'ยังไม่ได้เลือกช่วงเวลา';
-  if ($('dashboard-time-selected')) $('dashboard-time-selected').textContent = textValue;
-  if ($('backlog-time-label')) $('backlog-time-label').textContent = textValue;
+  const summary = isAllSelected() ? 'ทั้งหมด' : labels.length ? labels.join(' + ') : 'ไม่ได้เลือก';
+  if ($('dashboard-time-selected')) $('dashboard-time-selected').textContent = summary;
+  if ($('backlog-time-label')) $('backlog-time-label').textContent = summary;
 }
 
-function selectedRows(now = Date.now()) {
-  return parseRows(now).filter((row) => shellState.selectedBands.has(row.band));
+function countBy(rows, getter) {
+  const map = new Map();
+  for (const row of rows) {
+    const key = String(getter(row) || '-').trim() || '-';
+    map.set(key, (map.get(key) || 0) + 1);
+  }
+  return [...map.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'th'));
+}
+
+function renderSummaryList(id, entries, total, max = 8) {
+  const el = $(id);
+  if (!el) return;
+  const rows = entries.slice(0, max);
+  if (!rows.length) {
+    el.innerHTML = '<div class="summary-empty">-</div>';
+    return;
+  }
+  el.innerHTML = rows.map(([label, count]) => {
+    const pct = total ? Math.max(3, Math.round((count / total) * 100)) : 0;
+    return `<div class="summary-row"><div><span>${escapeHtml(label)}</span><strong>${fmt.format(count)}</strong></div><i><b style="width:${pct}%"></b></i></div>`;
+  }).join('');
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function normalizeDestinationSelectLabels() {
+  for (const id of ['hub-filter', 'branch-filter']) {
+    const select = $(id);
+    if (!select) continue;
+    [...select.options].forEach((option, index) => {
+      if (index === 0) return;
+      option.textContent = cleanDestination(option.value) || option.value;
+    });
+  }
 }
 
 function renderDashboard() {
@@ -136,59 +173,85 @@ function renderDashboard() {
   if ($('dash-over-plan')) $('dash-over-plan').textContent = fmt.format(overPlan);
   if ($('dash-bagged')) $('dash-bagged').textContent = fmt.format(bagged);
   if ($('dash-critical')) $('dash-critical').textContent = fmt.format(critical);
+
+  const bandCounts = new Map(TIME_BANDS.map(([key]) => [key, 0]));
+  for (const row of rows) if (bandCounts.has(row.band)) bandCounts.set(row.band, bandCounts.get(row.band) + 1);
+  document.querySelectorAll('[data-band-count]').forEach((el) => {
+    el.textContent = fmt.format(bandCounts.get(el.dataset.bandCount) || 0);
+  });
+
   if ($('dashboard-selection-note')) {
-    $('dashboard-selection-note').textContent = `เลือก ${fmt.format(shellState.selectedBands.size)} ช่วง · พบ ${fmt.format(selected.length)} จาก ${fmt.format(rows.length)} รายการในหน้าที่โหลดอยู่${unknown ? ` · อายุไม่ทราบ ${fmt.format(unknown)}` : ''}`;
+    $('dashboard-selection-note').textContent = `${fmt.format(selected.length)} / ${fmt.format(rows.length)} รายการ${unknown ? ` · ไม่ทราบอายุ ${fmt.format(unknown)}` : ''}`;
   }
+
+  const timeEntries = TIME_BANDS.map(([key, label]) => [label, bandCounts.get(key) || 0]);
+  renderSummaryList('dashboard-time-summary', timeEntries, rows.length, TIME_BANDS.length);
+  renderSummaryList('dashboard-hub-summary', countBy(rows, (row) => row.hub), rows.length);
+  renderSummaryList('dashboard-branch-summary', countBy(rows, (row) => row.branch), rows.length);
+  renderSummaryList('dashboard-action-summary', countBy(rows, (row) => row.latestAction), rows.length);
+
   updateTimeControls();
+  normalizeDestinationSelectLabels();
   applySelectedTimeFilter();
 }
 
 function applySelectedTimeFilter() {
   const rows = parseRows();
-  const active = shellState.useSelectedAsFilter && shellState.page === 'backlog';
+  const active = shellState.page !== 'dashboard' && !isAllSelected();
   rows.forEach((row) => {
-    row.tr.classList.toggle('dashboard-time-hidden', active && !shellState.selectedBands.has(row.band));
+    const hide = active && !shellState.selectedBands.has(row.band);
+    row.tr.classList.toggle('dashboard-time-hidden', hide);
   });
   const cards = [...document.querySelectorAll('#mobile-cards .mobile-card')];
   rows.forEach((row) => {
-    cards[row.index]?.classList.toggle('dashboard-time-hidden', active && !shellState.selectedBands.has(row.band));
+    const hide = active && !shellState.selectedBands.has(row.band);
+    cards[row.index]?.classList.toggle('dashboard-time-hidden', hide);
   });
-  $('backlog-time-banner')?.classList.toggle('hidden', !active);
+  $('backlog-time-banner')?.classList.toggle('hidden', !(shellState.page === 'backlog' && active));
+}
+
+function selectedRows(now = Date.now()) {
+  return parseRows(now).filter((row) => shellState.selectedBands.has(row.band));
 }
 
 async function copySelectedSummary() {
   const now = Date.now();
-  const rows = selectedRows(now);
   if (!shellState.selectedBands.size) {
-    if ($('dashboard-copy-status')) $('dashboard-copy-status').textContent = 'กรุณาเลือกอย่างน้อย 1 ช่วงเวลา';
+    if ($('dashboard-copy-status')) $('dashboard-copy-status').textContent = 'เลือกช่วงเวลาก่อน';
     return;
   }
+  const rows = selectedRows(now);
   if (!rows.length) {
-    if ($('dashboard-copy-status')) $('dashboard-copy-status').textContent = 'ไม่พบพัสดุตามช่วงเวลาที่เลือกในหน้าที่โหลดอยู่';
+    if ($('dashboard-copy-status')) $('dashboard-copy-status').textContent = 'ไม่มีรายการ';
     return;
   }
 
   const bandCounts = new Map(TIME_BANDS.map(([key]) => [key, 0]));
-  const destinationCounts = new Map();
+  const hubs = new Map();
+  const branches = new Map();
   for (const row of rows) {
     bandCounts.set(row.band, (bandCounts.get(row.band) || 0) + 1);
-    destinationCounts.set(row.destination, (destinationCounts.get(row.destination) || 0) + 1);
+    hubs.set(row.hub, (hubs.get(row.hub) || 0) + 1);
+    branches.set(row.branch, (branches.get(row.branch) || 0) + 1);
   }
 
-  const branchText = text($('branch-select')?.selectedOptions?.[0]) || text($('source-sync')) || '-';
+  const branchText = text($('branch-select')?.selectedOptions?.[0]) || '-';
   const lines = [
     `MS Parcel Live · ${branchText}`,
     `ช่วงเวลา: ${selectedLabels().join(', ')}`,
     `รวม ${fmt.format(rows.length)} รายการ · ${new Date(now).toLocaleString('th-TH')}`,
     '',
-    'สรุปตามช่วงเวลา',
+    'ช่วงเวลา',
     ...TIME_BANDS.filter(([key]) => shellState.selectedBands.has(key)).map(([key, label]) => `- ${label}: ${fmt.format(bandCounts.get(key) || 0)}`),
     '',
-    'สรุปตามปลายทาง',
-    ...[...destinationCounts.entries()].sort((a, b) => b[1] - a[1]).map(([destination, count]) => `- ${destination}: ${fmt.format(count)}`),
+    'HUB ปลายทาง',
+    ...[...hubs.entries()].sort((a, b) => b[1] - a[1]).map(([name, count]) => `- ${name}: ${fmt.format(count)}`),
     '',
-    'รายการพัสดุ',
-    ...rows.map((row, i) => `${i + 1}. ${row.pno} | ${bandLabel(row.band)} | ${row.planOverdue ? 'เกินเวลาแผน' : 'ตามเวลาแผน'} | ${row.pack ? `แบ็ก ${row.pack}` : 'ไม่มีแบ็ก'} | ${row.latestAction || '-'} | ${row.destination}`),
+    'สาขาปลายทาง',
+    ...[...branches.entries()].sort((a, b) => b[1] - a[1]).map(([name, count]) => `- ${name}: ${fmt.format(count)}`),
+    '',
+    'รายการ',
+    ...rows.map((row, i) => `${i + 1}. ${row.pno} | ${bandLabel(row.band)} | ${row.planOverdue ? 'เกินเวลาแผน' : 'ตามเวลาแผน'} | ${row.pack ? `แบ็ก ${row.pack}` : 'ไม่มีแบ็ก'} | ${row.latestAction} | ${row.destination}`),
   ];
 
   try {
@@ -204,35 +267,20 @@ async function copySelectedSummary() {
       document.execCommand('copy');
       ta.remove();
     }
-    if ($('dashboard-copy-status')) $('dashboard-copy-status').textContent = `คัดลอกรวม ${fmt.format(rows.length)} รายการแล้ว`;
+    if ($('dashboard-copy-status')) $('dashboard-copy-status').textContent = `คัดลอก ${fmt.format(rows.length)} รายการแล้ว`;
   } catch (error) {
-    if ($('dashboard-copy-status')) $('dashboard-copy-status').textContent = `คัดลอกไม่สำเร็จ: ${error.message}`;
+    if ($('dashboard-copy-status')) $('dashboard-copy-status').textContent = `คัดลอกไม่สำเร็จ`;
   }
-}
-
-function clearNativeFilters() {
-  if ($('search-input')) $('search-input').value = '';
-  for (const id of ['status-filter', 'hub-filter', 'branch-filter']) {
-    if ($(id)) $(id).value = '';
-  }
-  $('search-input')?.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 function resetPageFiltersFor(page) {
-  if (page === 'dashboard') {
-    clearNativeFilters();
+  if (page === 'dashboard' || page === 'parcels') {
     $('bag-reset-btn')?.click();
     document.querySelector('.smart-filter[data-risk="all"]')?.click();
-    shellState.useSelectedAsFilter = false;
-  } else if (page === 'parcels') {
-    $('bag-reset-btn')?.click();
-    document.querySelector('.smart-filter[data-risk="all"]')?.click();
-    shellState.useSelectedAsFilter = false;
   } else if (page === 'backlog') {
     $('bag-reset-btn')?.click();
   } else if (page === 'bagging') {
     document.querySelector('.smart-filter[data-risk="all"]')?.click();
-    shellState.useSelectedAsFilter = false;
   }
 }
 
@@ -298,25 +346,20 @@ function bindEvents() {
   $('dashboard-copy-selected')?.addEventListener('click', () => void copySelectedSummary());
   $('dashboard-open-selected')?.addEventListener('click', () => {
     if (!shellState.selectedBands.size) {
-      if ($('dashboard-copy-status')) $('dashboard-copy-status').textContent = 'เลือกช่วงเวลาก่อนเปิดรายการ';
+      if ($('dashboard-copy-status')) $('dashboard-copy-status').textContent = 'เลือกช่วงเวลาก่อน';
       return;
     }
-    shellState.useSelectedAsFilter = true;
     setPage('backlog', { resetFilters: false });
   });
   $('backlog-time-clear')?.addEventListener('click', () => {
-    shellState.useSelectedAsFilter = false;
-    applySelectedTimeFilter();
+    shellState.selectedBands = new Set(TIME_BANDS.map(([key]) => key));
+    saveSelection();
+    renderDashboard();
   });
 
-  document.querySelectorAll('.smart-filter,.smart-subfilter').forEach((button) => {
-    button.addEventListener('click', () => {
-      if (shellState.page === 'backlog') {
-        shellState.useSelectedAsFilter = false;
-        applySelectedTimeFilter();
-      }
-    });
-  });
+  for (const id of ['hub-filter', 'branch-filter']) {
+    $(id)?.addEventListener('change', scheduleDashboardRender);
+  }
 }
 
 function init() {
@@ -324,6 +367,13 @@ function init() {
   bindEvents();
   const tbody = $('table-body');
   if (tbody) new MutationObserver(scheduleDashboardRender).observe(tbody, { childList: true });
+  for (const id of ['hub-filter', 'branch-filter']) {
+    const select = $(id);
+    if (select) new MutationObserver(() => {
+      normalizeDestinationSelectLabels();
+      scheduleDashboardRender();
+    }).observe(select, { childList: true });
+  }
   const initial = PAGE_IDS.has(location.hash.slice(1)) ? location.hash.slice(1) : 'dashboard';
   setPage(initial, { updateHash: true, resetFilters: false });
   renderDashboard();
