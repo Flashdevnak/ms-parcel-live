@@ -15,7 +15,7 @@
 - [x] Slim payload + `content_hash` + `previous_hash` + `delta_payload` verified.
 - [x] Shared refresh lease verified atomic: first claim=true, immediate second claim=false.
 - [x] Final visible-tab production test: DB TTL 8.002 seconds; repeated `/live` about every 9.3–9.5 seconds including MS/Edge processing.
-- [x] v6 100-row payload measured ~15.9 KB full / ~1.26 KB delta in latest production sample.
+- [x] v6 100-row payload measured ~15.9 KB full / ~1.26 KB delta for 100 rows.
 
 ## v8/v9 username / multi-device / multi-branch
 - [x] Removed public signup UI; login is Username + password created by Admin.
@@ -31,7 +31,7 @@
 - [x] `claim_cache_refresh(branch_id, cache_key)` uses `SECURITY INVOKER` + branch-aware RLS.
 - [x] HAR upload is branch-scoped; `can_upload_har` user can update only own branch and Admin can update selected branch.
 - [x] Edge function uses custom Auth verification through `/auth/v1/user` on every protected route; public route is `/login` only.
-- [x] Edge source refactored into `core.ts`, `ms.ts`, `admin.ts`, `index.ts`; Supabase source matches GitHub.
+- [x] Edge source refactored into `core.ts`, `ms.ts`, `admin.ts`, `index.ts`; Supabase source matches GitHub at each deployed checkpoint.
 - [x] Adaptive live TTL: changed 8s, initial unchanged 15s, unchanged streak >=5 => 30s; summary 60s; hidden tab 60s.
 - [x] Frontend reads metadata first, then delta-only when hash chain matches; full payload is fallback only.
 - [x] Poll refresh is silent: existing table stays visible; no `กำลังโหลดข้อมูล MS...` overlay every cycle.
@@ -44,52 +44,48 @@
 - [x] Added client-side `<24h`, `24–48h`, `>48h` backlog classification from existing `real_arrive_time`.
 - [x] Expanded `<24h` into `<3`, `3–6`, `6–9`, `9–12`, `12–16`, `16–22`, `22–24` hour bands.
 - [x] Changed operational wording from `ตกรอบรถ` to `เกินเวลาแผน`: `plan_leave_time` has passed while parcel remains in unfinished list.
-- [x] Use `เกิน SLA 24 ชม.` / `เกิน SLA 48 ชม.` for inventory-age SLA grouping rather than using `คงคลัง` as the alert label.
+- [x] Use `เกิน SLA 24 ชม.` / `เกิน SLA 48 ชม.` for inventory-age SLA grouping.
 - [x] Added `ใกล้เวลาแผน ≤60 นาที` warning from existing `plan_leave_time`.
 - [x] Missing arrival timestamp stays `อายุไม่ทราบ`; no inferred/fabricated timestamp.
 - [x] Added risk badges on desktop table and mobile cards.
 - [x] Added current-page quick filters and counts.
 - [x] Added client-side `เสี่ยงสุดก่อน` sorting.
 - [x] Added `คัดลอกรายการที่กรอง` using Clipboard API for operational follow-up.
-- [x] Smart Monitor reuses rows already loaded by normal live cache and introduces no new Edge route, cron, DB table, MS request, or polling cadence.
 
-## Bagging Inspector — zero incremental backend quota
-- [x] Destination labels strip one or more leading `(xxx)` / `（xxx）` prefixes before display/filtering.
-- [x] Added bag parcel count and unique bag count.
-- [x] Added anomaly detection: mixed destination, mixed latest action, mixed parcel state within the same bag.
-- [x] Added bag-level `เกินเวลาแผน`, `ไม่มีการอัปเดต >6 ชม.`, and critical `>48 ชม. + เกินเวลาแผน` checks.
-- [x] Bagging page now uses shared time/LH/FD/latest-action filters plus bag number / issue filters only.
-- [x] Bagging detail columns: LH destination, FD destination, bagging number, parcel number, last-operator phone, latest-action time.
-- [x] Bagging clipboard export uses the same operational columns and current shared filters.
-- [x] Bagging Inspector remains frontend-only and introduces zero additional Edge/MS polling.
-
-## Operational SPA views / shared filters — zero incremental backend quota
-- [x] SPA now has six operational views: `แดชบอร์ด`, `พัสดุคงคลัง`, `สถานะพัสดุ`, `SLA & Backlog`, `น้ำหนักสาขา`, `ตรวจแบ็กกิ้ง`.
+## Operational SPA views / shared filters
+- [x] SPA has six operational views: `แดชบอร์ด`, `พัสดุคงคลัง`, `สถานะพัสดุ`, `SLA & Backlog`, `น้ำหนักสาขา`, `ตรวจแบ็กกิ้ง`.
 - [x] Dashboard remains the default view and keeps the existing live engine/session/cache running without page reload.
-- [x] Global filters shared by all views: time bands, LH destination, FD destination, latest action.
-- [x] Operational terminology is fixed: source `dst_hub_name` = LH destination; source `dst_store_name` = FD destination.
-- [x] Current source HUB is excluded from the LH destination dropdown and LH dashboard summary.
-- [x] Latest-action filter is generated from actual `LastAction_name` values and is shared across views.
+- [x] Operational terminology: `dst_hub_name` = LH destination; `dst_store_name` = FD destination.
+- [x] Current source HUB is excluded from LH destination summaries.
 - [x] Dashboard supports multi-select time bands: `<3`, `3–6`, `6–9`, `9–12`, `12–16`, `16–22`, `22–24`, `24–48`, `>48`.
-- [x] Time selection persists locally in browser `localStorage`; empty selection is preserved correctly.
+- [x] Time selection persists locally in browser `localStorage`.
 
 ## v13 full-data analytics redesign
 - [x] Frontend modules are fail-safe isolated: navigation, operational views, and analytics cannot take each other down.
-- [x] CI validates `app.js`, `inspector.js`, `analytics-client.js`, `snapshot-client.js`, `ops.js`, and `shell.js` before Pages deploy.
+- [x] CI validates `app.js`, `inspector.js`, `analytics-client.js`, `snapshot-client.js`, `ops.js`, `shell.js` and Deno type-checks the Edge entrypoint/dependencies before Pages deploy.
 - [x] Status view redesigned as three bar-chart groups: latest action, LH destination, FD destination.
 - [x] Weight view redesigned as separate FD cards and LH cards with parcel count / total kg / average kg.
 - [x] Bagging view redesigned as destination group -> bag card -> parcel-number list; per-bag and full-filter copy includes parcel numbers.
-- [x] Dashboard copy and SLA/Bagging copy include parcel numbers when full-detail snapshot is available.
-- [x] Added shared manager-phone filter source dimension using MS field `store_manager_phone` in v13 source.
+- [x] Dashboard copy and SLA/Bagging copy lazy-load full detail and include parcel numbers when a full snapshot is available.
+- [x] Added shared manager-phone dimension using actual MS field `store_manager_phone`.
 - [x] Added aggregate-only operational insights without additional MS reads: no-bag >24h, top manager backlog, top >48h destination, bagging rate.
-- [x] Added compact full-detail snapshot source code and on-demand browser reader; raw snapshot is not loaded on Dashboard.
-- [x] Full Analytics source hard limit remains max 30 MS requests per snapshot; no fallback to ~900 page reads.
-- [x] Full Analytics complete-cache target changed to 30 minutes to protect Free-plan quota.
-- [x] Added migration source `20260906_v13_full_snapshot_pages.sql` with own-branch/Admin read RLS and dedicated analytics lease key.
-- [ ] Production DB migration `20260906_v13_full_snapshot_pages.sql` still needs to be applied.
-- [ ] Production Edge must be updated from v12 to v13 source before manager-phone/full-detail snapshot can be considered live.
-- [ ] After backend activation, verify `scanned == total`, actual accepted MS page size, snapshot page count, and full-detail copy/filter results on NE1.
-- [ ] Only after the backend verification above, force-bump frontend asset versions for all clients.
+- [x] Full Analytics hard limit remains max 30 MS source requests per snapshot; no fallback to ~900 page reads.
+- [x] Full Analytics complete-cache target is 30 minutes; incomplete/probe cache is 5 minutes.
+- [x] Full snapshot writes are batched 3 pages at a time; a failed build cleans its partial snapshot.
+- [x] Full-detail rows are loaded on demand only for pages/actions that need parcel numbers; Dashboard normally uses aggregate data only.
+- [x] CP-v13-10: removed the new-table migration requirement. Full snapshot chunks reuse existing branch-RLS-protected `live_cache_pages`; no production schema change is required.
+- [x] Existing production-approved `transfer-summary` lease is reused only for the short analytics leader election, avoiding a DB policy migration.
+- [x] HAR upload clears live/snapshot cache for only the selected branch.
+- [x] Backend source passes `deno check`; frontend source passes all `node --check` gates.
+- [ ] CP-v13-11: deploy current GitHub Edge v13 source to production Supabase (production is still v12 until this completes).
+- [ ] CP-v13-12: after Edge activation verify NE1 `scanned == total`, accepted MS page size, source page count, snapshot page count, manager filter, parcel-number copy, LH/FD graphs and bag groups against live data.
+- [ ] CP-v13-13: only after CP-v13-12 passes, force-bump frontend asset versions and run final production smoke test.
+
+### v13 deployment credential gate
+- [x] Direct DB migration is no longer required.
+- [x] GitHub fallback deployment workflow is manual-only and deploys Edge via Supabase CLI `--use-api`.
+- [x] Checked repository + `github-pages` environment credential aliases without exposing values.
+- [ ] No Supabase management token is currently configured in GitHub, so GitHub cannot perform CP-v13-11 yet.
 
 ## Advisor note
 - [x] Security Advisor has no new RLS/schema warning; remaining `Leaked Password Protection Disabled` is the known Free-plan Auth warning.
