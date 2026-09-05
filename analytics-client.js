@@ -1,25 +1,21 @@
-const PROJECT_REF = 'afhnfnfbqdqqzrghovfc';
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm';
+
 const SUPABASE_URL = 'https://afhnfnfbqdqqzrghovfc.supabase.co';
 const PUBLISHABLE_KEY = 'sb_publishable_4GStzbYK3_BhthidusT_hw_DqtzC7qE';
 const FUNCTION_BASE = `${SUPABASE_URL}/functions/v1/ms-parcel-api`;
 const SNAPSHOT_MS = 30 * 60_000;
+const analyticsSupabase = createClient(SUPABASE_URL, PUBLISHABLE_KEY, {
+  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
+});
 let loading = false;
 let lastBranch = 0;
 let lastLoadedAt = 0;
 
-function findAccessToken() {
-  const preferred = `sb-${PROJECT_REF}-auth-token`;
-  const keys = [preferred, ...Object.keys(localStorage).filter((k) => k.startsWith(`sb-${PROJECT_REF}`) && k !== preferred)];
-  const walk = (value) => {
-    if (!value || typeof value !== 'object') return '';
-    if (typeof value.access_token === 'string' && value.access_token) return value.access_token;
-    for (const v of Object.values(value)) { const found = walk(v); if (found) return found; }
-    return '';
-  };
-  for (const key of keys) {
-    try { const token = walk(JSON.parse(localStorage.getItem(key) || 'null')); if (token) return token; } catch (_) {}
-  }
-  return '';
+async function accessToken() {
+  try {
+    const { data } = await analyticsSupabase.auth.getSession();
+    return String(data?.session?.access_token || '');
+  } catch (_) { return ''; }
 }
 function branchId() { return Number(document.getElementById('branch-select')?.value || 0); }
 function cacheKey(id) { return `b:${id}:summary:full-analytics-v1`; }
@@ -33,7 +29,6 @@ function publish(data) {
   window.__MS_FULL_ANALYTICS = data;
   window.dispatchEvent(new CustomEvent('ms-full-analytics', { detail:data }));
 }
-
 async function readCache(id, token) {
   const select = encodeURIComponent('payload,expires_at,source_updated_at');
   const key = encodeURIComponent(cacheKey(id));
@@ -56,33 +51,31 @@ async function edgeRefresh(id, token) {
   if (!res.ok || !out?.ok) throw new Error(out?.message || `HTTP ${res.status}`);
   return out.data;
 }
-
 async function loadFullAnalytics(force = false) {
-  const id=branchId(),token=findAccessToken();
+  const id = branchId();
+  const token = await accessToken();
   if (!id || !token || loading) return;
-  if (!force && id===lastBranch && Date.now()-lastLoadedAt < SNAPSHOT_MS-30_000) return;
-  loading=true;
+  if (!force && id === lastBranch && Date.now() - lastLoadedAt < SNAPSHOT_MS - 30_000) return;
+  loading = true;
   try {
-    const cached=await readCache(id,token);
+    const cached = await readCache(id, token);
     if (cached?.payload) publish(cached.payload);
-    const fresh=cached && Date.parse(String(cached.expires_at||'')) > Date.now();
+    const fresh = cached && Date.parse(String(cached.expires_at || '')) > Date.now();
     if (fresh && !force) { lastBranch=id; lastLoadedAt=Date.now(); return; }
-
-    const leader=await claim(id,token);
+    const leader = await claim(id, token);
     if (leader) {
-      const data=await edgeRefresh(id,token);
+      const data = await edgeRefresh(id, token);
       publish(data);
       lastBranch=id; lastLoadedAt=Date.now();
     } else {
       await new Promise((r)=>setTimeout(r,1300));
-      const shared=await readCache(id,token);
+      const shared = await readCache(id, token);
       if (shared?.payload) { publish(shared.payload); lastBranch=id; lastLoadedAt=Date.now(); }
     }
   } catch (error) {
     window.dispatchEvent(new CustomEvent('ms-full-analytics-error',{detail:{message:String(error?.message||error)}}));
   } finally { loading=false; }
 }
-
 function init() {
   setTimeout(()=>void loadFullAnalytics(false),1200);
   document.getElementById('branch-select')?.addEventListener('change',()=>{lastBranch=0;lastLoadedAt=0;window.__MS_FULL_ANALYTICS=null;setTimeout(()=>void loadFullAnalytics(false),900);});
