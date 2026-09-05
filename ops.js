@@ -1,7 +1,7 @@
 const $=(id)=>document.getElementById(id);
 const fmt=new Intl.NumberFormat('th-TH');
 const BANDS=['under3','3to6','6to9','9to12','12to16','16to22','22to24','24to48','over48'];
-const BAND_LABELS={under3:'<3 ชม.',3to6:'3–6 ชม.',6to9:'6–9 ชม.',9to12:'9–12 ชม.',12to16:'12–16 ชม.',16to22:'16–22 ชม.',22to24:'22–24 ชม.',24to48:'24–48 ชม.',over48:'>48 ชม.',unknown:'ไม่ทราบอายุ'};
+const BAND_LABELS={under3:'<3 ชม.','3to6':'3–6 ชม.','6to9':'6–9 ชม.','9to12':'9–12 ชม.','12to16':'12–16 ชม.','16to22':'16–22 ชม.','22to24':'22–24 ชม.','24to48':'24–48 ชม.',over48:'>48 ชม.',unknown:'ไม่ทราบอายุ'};
 let fullAnalytics=window.__MS_FULL_ANALYTICS||null,fullRows=[],scheduled=false,loadingFull=false,currentPage='dashboard';
 const pager={parcels:1,status:1,backlog:1,bags:1};
 const PAGE_SIZE={parcels:100,status:120,backlog:100,bags:40};
