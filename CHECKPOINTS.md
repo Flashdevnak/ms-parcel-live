@@ -54,27 +54,33 @@
 - [x] Smart Monitor reuses rows already loaded by normal live cache and introduces no new Edge route, cron, DB table, MS request, or polling cadence.
 
 ## Bagging Inspector — zero incremental backend quota
-- [x] Added default `ทั้งหมด` mode and `เฉพาะมีเลขแบ็กกิ้ง` mode.
-- [x] Added Bagging search and filters sourced only from bagged rows currently loaded: latest action, destination HUB, destination branch, issue type.
-- [x] Destination HUB/branch labels strip one or more leading `(xxx)` / `（xxx）` prefixes before display/filtering.
+- [x] Destination labels strip one or more leading `(xxx)` / `（xxx）` prefixes before display/filtering.
 - [x] Added bag parcel count and unique bag count.
 - [x] Added anomaly detection: mixed destination, mixed latest action, mixed parcel state within the same bag.
 - [x] Added bag-level `เกินเวลาแผน`, `ไม่มีการอัปเดต >6 ชม.`, and critical `>48 ชม. + เกินเวลาแผน` checks.
-- [x] Added top problem-bag shortcuts; clicking a bag filters to that bag immediately.
-- [x] Added clipboard summary for filtered bag groups.
-- [x] Bagging Inspector is a frontend-only module (`inspector.js` + `inspector.css`) and introduces zero additional Edge/MS polling.
+- [x] Bagging page now uses shared time/LH/FD/latest-action filters plus bag number / issue filters only.
+- [x] Bagging detail columns: LH destination, FD destination, bagging number, parcel number, last-operator phone, latest-action time.
+- [x] Bagging clipboard export uses the same operational columns and current shared filters.
+- [x] Bagging Inspector remains frontend-only and introduces zero additional Edge/MS polling.
 
-## Dashboard / page shell — zero incremental backend quota
-- [x] Split long single page into four SPA views: `แดชบอร์ด`, `พัสดุคงคลัง`, `SLA & Backlog`, `ตรวจแบ็กกิ้ง`.
-- [x] Dashboard is the default first view and keeps the existing live engine/session/cache running without page reload.
-- [x] Shared result table is moved between Parcel/SLA/Bagging views instead of duplicated, so navigation adds no Edge/MS request.
+## Operational SPA views / shared filters — zero incremental backend quota
+- [x] SPA now has six operational views: `แดชบอร์ด`, `พัสดุคงคลัง`, `สถานะพัสดุ`, `SLA & Backlog`, `น้ำหนักสาขา`, `ตรวจแบ็กกิ้ง`.
+- [x] Dashboard remains the default view and keeps the existing live engine/session/cache running without page reload.
+- [x] Global filters shared by all views: time bands, LH destination, FD destination, latest action.
+- [x] Operational terminology is fixed: source `dst_hub_name` = LH destination; source `dst_store_name` = FD destination.
+- [x] LH/FD filter values come only from actual rows in the currently loaded source-branch page; no invented mapping.
+- [x] Current source HUB is excluded from the LH destination dropdown and LH dashboard summary.
+- [x] LH -> FD is cascading: when LH is selected, FD dropdown contains only FD destinations present under that LH in the loaded data.
+- [x] Leading `(xxx)` / `（xxx）` prefixes are removed only for display; raw source values remain the filter keys.
+- [x] Latest-action filter is generated from actual `LastAction_name` values and is shared across views.
+- [x] `สถานะพัสดุ` summarizes actual latest actions and shows parcel/latest action/time/operator phone/LH/FD detail.
+- [x] `น้ำหนักสาขา` derives from `pno + store_weight`, grouped by FD destination with parcel count, total kg, average kg, and observed LH destinations.
+- [x] Selecting all nine time bands means true `ทั้งหมด`, including rows with unknown arrival age; selecting a subset excludes unknown-age rows.
+- [x] Dashboard LH/FD/latest-action/risk summaries and clipboard output follow the same selected time/action filters.
 - [x] Dashboard supports multi-select time bands: `<3`, `3–6`, `6–9`, `9–12`, `12–16`, `16–22`, `22–24`, `24–48`, `>48`.
 - [x] Time selection persists locally in browser `localStorage`; empty selection is preserved correctly.
-- [x] Added `คัดลอกรวมตามเวลาที่เลือก`: summary by time band + destination + parcel list + bagging + latest action, using only rows already loaded.
-- [x] Added `เปิดรายการช่วงที่เลือก` to carry multiple selected bands into SLA view without a new backend call.
-- [x] Filters are isolated between Dashboard/Parcel/SLA/Bagging to prevent stale filters from corrupting dashboard counts.
-- [x] Added responsive sticky top navigation; mobile navigation scrolls inside its own bar rather than widening the page.
-- [x] CI validates `app.js`, `inspector.js`, and `shell.js` before GitHub Pages deploy.
+- [x] Navigation, filtering, summaries, status page, weight page, and bagging detail all reuse the existing loaded rows and add no Edge/MS request, DB poll, or cron.
+- [x] CI validates `app.js`, `inspector.js`, `ops.js`, and `shell.js` before GitHub Pages deploy.
 
 ## Advisor note
 - [x] Security Advisor has no new RLS/schema warning; remaining `Leaked Password Protection Disabled` is the known Free-plan Auth warning.
@@ -96,5 +102,6 @@
 - v9-1: password minimum aligned to 6 characters.
 - v9-2: async admin form reset bug fixed and Store ID-from-HAR UX clarified.
 - v9-3: zero-quota Smart Backlog Monitor implemented.
-- v9-4: SLA sub-bands + Bagging Inspector implemented; frontend JavaScript validation expanded to both modules.
-- v9-5: dashboard-first four-view SPA + multi-select time copy implemented with zero incremental backend quota.
+- v9-4: SLA sub-bands + Bagging Inspector implemented.
+- v9-5: compact dashboard-first SPA + shared time filters.
+- v9-6: LH/FD semantics, cascading filters, latest-action page, weight page, and operational bagging detail implemented.
