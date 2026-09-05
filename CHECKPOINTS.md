@@ -68,19 +68,28 @@
 - [x] Dashboard remains the default view and keeps the existing live engine/session/cache running without page reload.
 - [x] Global filters shared by all views: time bands, LH destination, FD destination, latest action.
 - [x] Operational terminology is fixed: source `dst_hub_name` = LH destination; source `dst_store_name` = FD destination.
-- [x] LH/FD filter values come only from actual rows in the currently loaded source-branch page; no invented mapping.
 - [x] Current source HUB is excluded from the LH destination dropdown and LH dashboard summary.
-- [x] LH -> FD is cascading: when LH is selected, FD dropdown contains only FD destinations present under that LH in the loaded data.
-- [x] Leading `(xxx)` / `（xxx）` prefixes are removed only for display; raw source values remain the filter keys.
 - [x] Latest-action filter is generated from actual `LastAction_name` values and is shared across views.
-- [x] `สถานะพัสดุ` summarizes actual latest actions and shows parcel/latest action/time/operator phone/LH/FD detail.
-- [x] `น้ำหนักสาขา` derives from `pno + store_weight`, grouped by FD destination with parcel count, total kg, average kg, and observed LH destinations.
-- [x] Selecting all nine time bands means true `ทั้งหมด`, including rows with unknown arrival age; selecting a subset excludes unknown-age rows.
-- [x] Dashboard LH/FD/latest-action/risk summaries and clipboard output follow the same selected time/action filters.
 - [x] Dashboard supports multi-select time bands: `<3`, `3–6`, `6–9`, `9–12`, `12–16`, `16–22`, `22–24`, `24–48`, `>48`.
 - [x] Time selection persists locally in browser `localStorage`; empty selection is preserved correctly.
-- [x] Navigation, filtering, summaries, status page, weight page, and bagging detail all reuse the existing loaded rows and add no Edge/MS request, DB poll, or cron.
-- [x] CI validates `app.js`, `inspector.js`, `ops.js`, and `shell.js` before GitHub Pages deploy.
+
+## v13 full-data analytics redesign
+- [x] Frontend modules are fail-safe isolated: navigation, operational views, and analytics cannot take each other down.
+- [x] CI validates `app.js`, `inspector.js`, `analytics-client.js`, `snapshot-client.js`, `ops.js`, and `shell.js` before Pages deploy.
+- [x] Status view redesigned as three bar-chart groups: latest action, LH destination, FD destination.
+- [x] Weight view redesigned as separate FD cards and LH cards with parcel count / total kg / average kg.
+- [x] Bagging view redesigned as destination group -> bag card -> parcel-number list; per-bag and full-filter copy includes parcel numbers.
+- [x] Dashboard copy and SLA/Bagging copy include parcel numbers when full-detail snapshot is available.
+- [x] Added shared manager-phone filter source dimension using MS field `store_manager_phone` in v13 source.
+- [x] Added aggregate-only operational insights without additional MS reads: no-bag >24h, top manager backlog, top >48h destination, bagging rate.
+- [x] Added compact full-detail snapshot source code and on-demand browser reader; raw snapshot is not loaded on Dashboard.
+- [x] Full Analytics source hard limit remains max 30 MS requests per snapshot; no fallback to ~900 page reads.
+- [x] Full Analytics complete-cache target changed to 30 minutes to protect Free-plan quota.
+- [x] Added migration source `20260906_v13_full_snapshot_pages.sql` with own-branch/Admin read RLS and dedicated analytics lease key.
+- [ ] Production DB migration `20260906_v13_full_snapshot_pages.sql` still needs to be applied.
+- [ ] Production Edge must be updated from v12 to v13 source before manager-phone/full-detail snapshot can be considered live.
+- [ ] After backend activation, verify `scanned == total`, actual accepted MS page size, snapshot page count, and full-detail copy/filter results on NE1.
+- [ ] Only after the backend verification above, force-bump frontend asset versions for all clients.
 
 ## Advisor note
 - [x] Security Advisor has no new RLS/schema warning; remaining `Leaked Password Protection Disabled` is the known Free-plan Auth warning.
