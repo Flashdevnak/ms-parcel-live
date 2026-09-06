@@ -34,6 +34,10 @@ jobs:
           node --check data-model.js
           node --check auth-client.js
           node --check dropdowns.js
+          node --check control-room.js
+          node --check admin-control.js
+          node --check bag-control.js
+          node --check ops-intelligence.js
           node tests-data.mjs
           node tests-lease.mjs
       - name: Setup Deno
