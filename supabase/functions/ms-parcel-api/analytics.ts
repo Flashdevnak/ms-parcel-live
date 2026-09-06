@@ -36,87 +36,72 @@ function snapshotRow(r:any){return[
 ];}
 function snapshotPrefix(branchId:number,snapshotId:string){return`b:${branchId}:snapshot:${snapshotId}:p:`;}
 function snapshotKey(branchId:number,snapshotId:string,pageNo:number){return`${snapshotPrefix(branchId,snapshotId)}${String(pageNo).padStart(4,'0')}`;}
+function ageOver24(payload:any){return Number(payload?.bandTotals?.['24to48']||0)+Number(payload?.bandTotals?.over48||0);}
+function groupMap(list:any[]){return new Map((Array.isArray(list)?list:[]).map((x:any)=>[String(x?.name||''),Number(x?.count||0)]));}
+function destinationChanges(previous:any[],current:any[]){
+  const before=groupMap(previous),after=groupMap(current),names=new Set([...before.keys(),...after.keys()]);
+  return [...names].filter(Boolean).map(name=>({name,previous:before.get(name)||0,current:after.get(name)||0,delta:(after.get(name)||0)-(before.get(name)||0)})).filter(x=>x.delta!==0).sort((a,b)=>Math.abs(b.delta)-Math.abs(a.delta)||b.current-a.current||a.name.localeCompare(b.name,'th')).slice(0,50);
+}
+function enrichBagGroups(previous:any,current:any[],sourceAt:string,previousAt:string,comparisonAvailable:boolean){
+  const prior=new Map<string,any>();
+  if(comparisonAvailable){for(const p of (Array.isArray(previous?.bagGroups)?previous.bagGroups:[]))prior.set(bagKey(String(p?.pack||''),String(p?.route||''),String(p?.destination||'')),p);}
+  const nowMs=Date.parse(sourceAt);
+  return (Array.isArray(current)?current:[]).map((g:any)=>{
+    const key=bagKey(String(g.pack||''),String(g.route||''),String(g.destination||'')),p=prior.get(key)||null,previousCount=p?Number(p.currentCount||0):null,delta=previousCount===null?null:Number(g.currentCount||0)-previousCount;
+    const peakObserved=Math.max(Number(g.currentCount||0),comparisonAvailable?Number(p?.peakObserved??p?.currentCount??0):0);
+    const firstSeenAt=comparisonAvailable&&p?.firstSeenAt?p.firstSeenAt:(comparisonAvailable&&p?previousAt:sourceAt);
+    const lastChangeAt=delta!==null&&delta!==0?sourceAt:(comparisonAvailable&&p?.lastChangeAt?p.lastChangeAt:(comparisonAvailable&&p?previousAt:sourceAt));
+    const lastDecreaseAt=delta!==null&&delta<0?sourceAt:(comparisonAvailable?p?.lastDecreaseAt||null:null);
+    const stagnantMinutes=Number.isFinite(nowMs)&&Number.isFinite(Date.parse(String(lastChangeAt||'')))?Math.max(0,Math.floor((nowMs-Date.parse(String(lastChangeAt)))/60000)):0;
+    const currentCount=Number(g.currentCount||0),residualRatio=peakObserved>0?Math.round((currentCount/peakObserved)*1000)/1000:null;
+    return{...g,peakObserved,previousCount,deltaCount:delta,firstSeenAt,lastChangeAt,lastDecreaseAt,stagnantMinutes,residualRatio,residualTail:currentCount<=5?'1to5':currentCount<=10?'6to10':'over10'};
+  });
+}
+function changeSummary(previous:any,current:any,previousAt:string,sourceAt:string,comparisonAvailable:boolean){
+  if(!comparisonAvailable)return{available:false,reason:'waiting_for_two_complete_snapshots'};
+  const elapsedMs=Date.parse(sourceAt)-Date.parse(previousAt),elapsedMinutes=elapsedMs>0?elapsedMs/60000:0;
+  const totalDelta=Number(current.total||0)-Number(previous.total||0),fdDelta=Number(current.fdCount||0)-Number(previous.fdCount||0),lhDelta=Number(current.lhCount||0)-Number(previous.lhCount||0),over24Delta=ageOver24(current)-ageOver24(previous),over48Delta=Number(current?.bandTotals?.over48||0)-Number(previous?.bandTotals?.over48||0),uniqueBagsDelta=Number(current.uniqueBags||0)-Number(previous.uniqueBags||0);
+  const rate=(delta:number)=>elapsedMinutes>0?Math.round((delta*30/elapsedMinutes)*10)/10:null;
+  return{available:true,previousSourceAt:previousAt,elapsedMinutes:Math.round(elapsedMinutes*10)/10,totalDelta,fdDelta,lhDelta,over24Delta,over48Delta,uniqueBagsDelta,totalRatePer30m:rate(totalDelta),fdRatePer30m:rate(fdDelta),lhRatePer30m:rate(lhDelta),fdDestinations:destinationChanges(previous.fd,current.fd),lhDestinations:destinationChanges(previous.lh,current.lh)};
+}
 
 async function persistSnapshot(branchId:number,snapshotId:string,pages:any[],sourceTotal:number,sourceAt:string,expiresAt:string){
   const prefix=snapshotPrefix(branchId,snapshotId);
   try{
     for(let start=0;start<pages.length;start+=SNAPSHOT_WRITE_BATCH){
-      const records=pages.slice(start,start+SNAPSHOT_WRITE_BATCH).map((rows,offset)=>{
-        const pageNo=start+offset+1;
-        return{
-          cache_key:snapshotKey(branchId,snapshotId,pageNo),branch_id:branchId,payload:rows,item_count:rows.length,source_total:sourceTotal,
-          source_updated_at:sourceAt,expires_at:expiresAt,content_hash:null,previous_hash:null,delta_payload:null,unchanged_streak:0,
-        };
-      });
+      const records=pages.slice(start,start+SNAPSHOT_WRITE_BATCH).map((rows,offset)=>{const pageNo=start+offset+1;return{cache_key:snapshotKey(branchId,snapshotId,pageNo),branch_id:branchId,payload:rows,item_count:rows.length,source_total:sourceTotal,source_updated_at:sourceAt,expires_at:expiresAt,content_hash:null,previous_hash:null,delta_payload:null,unchanged_streak:0};});
       await db('live_cache_pages?on_conflict=cache_key',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(records)});
     }
-    const oldBefore=new Date(Date.now()-60_000).toISOString();
-    const pattern=encodeURIComponent(`b:${branchId}:snapshot:%`);
-    await db(`live_cache_pages?branch_id=eq.${branchId}&cache_key=like.${pattern}&expires_at=lt.${encodeURIComponent(oldBefore)}`,{method:'DELETE'});
-    return true;
-  }catch{
-    try{await db(`live_cache_pages?branch_id=eq.${branchId}&cache_key=like.${encodeURIComponent(prefix+'%')}`,{method:'DELETE'});}catch{}
-    return false;
-  }
+    const oldBefore=new Date(Date.now()-60_000).toISOString(),pattern=encodeURIComponent(`b:${branchId}:snapshot:%`);
+    await db(`live_cache_pages?branch_id=eq.${branchId}&cache_key=like.${pattern}&expires_at=lt.${encodeURIComponent(oldBefore)}`,{method:'DELETE'});return true;
+  }catch{try{await db(`live_cache_pages?branch_id=eq.${branchId}&cache_key=like.${encodeURIComponent(prefix+'%')}`,{method:'DELETE'});}catch{}return false;}
 }
 
 export async function buildFullAnalytics(conn:any,branch:any,requestedPageSize=DEFAULT_PAGE_SIZE){
   const branchId=Number(branch?.id||0),pageSize=Math.max(500,Math.min(10000,Number(requestedPageSize)||DEFAULT_PAGE_SIZE));
-  const controller=new AbortController();
-  let deadline:any;
-  const timeout=new Promise((_,reject)=>{
-    deadline=setTimeout(()=>{controller.abort(new Error('full_scan_deadline'));reject(new Error('การรวบรวมข้อมูลทั้ง HUB เกินขีดจำกัดเวลาที่ปลอดภัย'));},FULL_SCAN_DEADLINE_MS);
-  });
-  let collected:any;
-  try{
-    collected=await Promise.race([
-      collectSnapshot((p:number,size:number,totalHint:number)=>fetchLivePage(conn,p,size,totalHint,controller.signal),pageSize),
-      timeout,
-    ]);
-  }finally{
-    clearTimeout(deadline);
-    controller.abort();
-  }
-  const {rowPages,...scan}=collected;
-  const {total,pages}=scan;
-  if(!rowPages?.length)return {...scan,branchId,snapshotStore:null,snapshotId:null,snapshotPages:0,snapshotExpiresAt:null,updatedAt:new Date().toISOString(),schemaVersion:SCHEMA_VERSION};
-
+  const controller=new AbortController();let deadline:any;
+  const timeout=new Promise((_,reject)=>{deadline=setTimeout(()=>{controller.abort(new Error('full_scan_deadline'));reject(new Error('การรวบรวมข้อมูลทั้ง HUB เกินขีดจำกัดเวลาที่ปลอดภัย'));},FULL_SCAN_DEADLINE_MS);});
+  let collected:any;try{collected=await Promise.race([collectSnapshot((p:number,size:number,totalHint:number)=>fetchLivePage(conn,p,size,totalHint,controller.signal),pageSize),timeout]);}finally{clearTimeout(deadline);controller.abort();}
+  const {rowPages,...scan}=collected,{total,pages}=scan;
+  if(!rowPages?.length)return{...scan,branchId,snapshotStore:null,snapshotId:null,snapshotPages:0,snapshotExpiresAt:null,updatedAt:new Date().toISOString(),schemaVersion:SCHEMA_VERSION};
   const now=Date.now(),sourceAt=new Date(now).toISOString(),snapshotId=crypto.randomUUID(),expiresAt=new Date(now+SNAPSHOT_TTL_MS).toISOString();
   const isOwnHub=ownHubMatcher(branch),fd=new Map<string,any>(),lh=new Map<string,any>(),actions=new Map<string,number>(),parcelStates=new Map<string,number>(),managerPhones=new Map<string,number>(),bags=new Set<string>(),bagGroups=new Map<string,any>(),cells=new Map<string,any>(),bandTotals:Record<string,number>=Object.fromEntries(BANDS.map((b)=>[b,0])),snapshotPages:any[]=[];
   let scanned=0,totalWeightKg=0,baggedParcels=0,singleParcels=0,overdueTotal=0,criticalTotal=0,fdCount=0,lhCount=0;
-
-  const consume=(rows:any[])=>{
-    const compact=rows.map(snapshotRow);
-    for(let i=0;i<compact.length;i+=SNAPSHOT_PAGE_SIZE)snapshotPages.push(compact.slice(i,i+SNAPSHOT_PAGE_SIZE));
-    for(const row of rows){
-      scanned+=1;
-      const kg=weightKg(row?.store_weight),lastAt=parseTime(row?.LastActionTime),band=bandOf(row?.LastActionTime,now),action=String(row?.LastAction_name||'-').trim()||'-',manager=String(row?.store_manager_display??'()'),plan=parseTime(row?.plan_leave_time),overdue=Number.isFinite(plan)&&now>plan,critical=overdue&&band==='over48';
-      totalWeightKg+=kg;bandTotals[band]=(bandTotals[band]||0)+1;addCount(actions,action);addCount(parcelStates,String(row?.state_name||'-'));addRawCount(managerPhones,manager);if(overdue)overdueTotal+=1;if(critical)criticalTotal+=1;
-      const bag=String(row?.pack_num||'').trim(),hasBag=!!bag&&bag!=='-'&&bag!=='--';if(hasBag){baggedParcels+=1;bags.add(bag);}else singleParcels+=1;
-      const hubRaw=row?.dst_hub_name,hub=cleanName(hubRaw),store=cleanName(row?.dst_store_name);let route='other',dest='';
-      if(isOwnHub(hubRaw)){route='fd';dest=store;fdCount+=1;if(store)addGroup(fd,store,kg);}else if(hub){route='lh';dest=hub;lhCount+=1;addGroup(lh,hub,kg);}
-      if(hasBag){
-        const key=bagKey(bag,route,dest),ageHours=Number.isFinite(lastAt)&&now>=lastAt?(now-lastAt)/3600000:null;
-        const group=bagGroups.get(key)||{pack:bag,route,destination:dest,currentCount:0,weightKg:0,maxAgeHours:null,over24:0,over48:0,latestAt:0,managerPhones:new Set<string>()};
-        group.currentCount+=1;group.weightKg+=kg;
-        if(ageHours!==null&&(group.maxAgeHours===null||ageHours>group.maxAgeHours))group.maxAgeHours=ageHours;
-        if(ageHours!==null&&ageHours>=24)group.over24+=1;if(ageHours!==null&&ageHours>48)group.over48+=1;
-        if(Number.isFinite(lastAt)&&lastAt>group.latestAt)group.latestAt=lastAt;
-        if(manager&&manager!=='()')group.managerPhones.add(manager);
-        bagGroups.set(key,group);
-      }
-      const key=cellKey(route,dest,band,action,manager),cell=cells.get(key)||{r:route,d:dest,b:band,a:action,m:manager,c:0,w:0,g:0,o:0,q:0,t:0};
-      cell.c+=1;cell.w+=kg;if(hasBag)cell.g+=1;if(overdue)cell.o+=1;if(critical)cell.q+=1;if(Number.isFinite(lastAt)&&lastAt>cell.t)cell.t=lastAt;cells.set(key,cell);
-    }
-  };
-
+  const consume=(rows:any[])=>{const compact=rows.map(snapshotRow);for(let i=0;i<compact.length;i+=SNAPSHOT_PAGE_SIZE)snapshotPages.push(compact.slice(i,i+SNAPSHOT_PAGE_SIZE));for(const row of rows){
+    scanned+=1;const kg=weightKg(row?.store_weight),lastAt=parseTime(row?.LastActionTime),band=bandOf(row?.LastActionTime,now),action=String(row?.LastAction_name||'-').trim()||'-',manager=String(row?.store_manager_display??'()'),plan=parseTime(row?.plan_leave_time),overdue=Number.isFinite(plan)&&now>plan,critical=overdue&&band==='over48';
+    totalWeightKg+=kg;bandTotals[band]=(bandTotals[band]||0)+1;addCount(actions,action);addCount(parcelStates,String(row?.state_name||'-'));addRawCount(managerPhones,manager);if(overdue)overdueTotal+=1;if(critical)criticalTotal+=1;
+    const bag=String(row?.pack_num||'').trim(),hasBag=!!bag&&bag!=='-'&&bag!=='--';if(hasBag){baggedParcels+=1;bags.add(bag);}else singleParcels+=1;
+    const hubRaw=row?.dst_hub_name,hub=cleanName(hubRaw),store=cleanName(row?.dst_store_name);let route='other',dest='';if(isOwnHub(hubRaw)){route='fd';dest=store;fdCount+=1;if(store)addGroup(fd,store,kg);}else if(hub){route='lh';dest=hub;lhCount+=1;addGroup(lh,hub,kg);}
+    if(hasBag){const key=bagKey(bag,route,dest),ageHours=Number.isFinite(lastAt)&&now>=lastAt?(now-lastAt)/3600000:null,group=bagGroups.get(key)||{pack:bag,route,destination:dest,currentCount:0,weightKg:0,maxAgeHours:null,over24:0,over48:0,latestAt:0,managerPhones:new Set<string>()};group.currentCount+=1;group.weightKg+=kg;if(ageHours!==null&&(group.maxAgeHours===null||ageHours>group.maxAgeHours))group.maxAgeHours=ageHours;if(ageHours!==null&&ageHours>=24)group.over24+=1;if(ageHours!==null&&ageHours>48)group.over48+=1;if(Number.isFinite(lastAt)&&lastAt>group.latestAt)group.latestAt=lastAt;if(manager&&manager!=='()')group.managerPhones.add(manager);bagGroups.set(key,group);}
+    const key=cellKey(route,dest,band,action,manager),cell=cells.get(key)||{r:route,d:dest,b:band,a:action,m:manager,c:0,w:0,g:0,o:0,q:0,t:0};cell.c+=1;cell.w+=kg;if(hasBag)cell.g+=1;if(overdue)cell.o+=1;if(critical)cell.q+=1;if(Number.isFinite(lastAt)&&lastAt>cell.t)cell.t=lastAt;cells.set(key,cell);
+  }};
   for(const rows of rowPages)consume(rows);
-  const complete=scan.complete&&scanned===total;
-  const snapshotAvailable=complete&&branchId>0?await persistSnapshot(branchId,snapshotId,snapshotPages,total,sourceAt,expiresAt):false;
-  const bagGroupList=[...bagGroups.values()].map((g:any)=>({pack:g.pack,route:g.route,destination:g.destination,currentCount:g.currentCount,weightKg:Math.round(g.weightKg*1000)/1000,maxAgeHours:g.maxAgeHours===null?null:Math.round(g.maxAgeHours*100)/100,over24:g.over24,over48:g.over48,latestAt:g.latestAt?new Date(g.latestAt).toISOString():null,managerCount:g.managerPhones.size})).sort((a:any,b:any)=>b.over48-a.over48||b.over24-a.over24||b.currentCount-a.currentCount||a.pack.localeCompare(b.pack));
-  return{
-    ...scan,complete:complete&&snapshotAvailable,reason:!complete?scan.reason:snapshotAvailable?null:'snapshot_write_failed',schemaVersion:SCHEMA_VERSION,total,scanned,pages,snapshotStore:snapshotAvailable?'live_cache_pages':null,snapshotId:snapshotAvailable?snapshotId:null,snapshotPages:snapshotAvailable?snapshotPages.length:0,snapshotExpiresAt:snapshotAvailable?expiresAt:null,
-    ownHubName:branch?.own_hub_name||branch?.name||branch?.code||'',fdCount,lhCount,singleParcels,totalWeightKg:Math.round(totalWeightKg*1000)/1000,avgWeightKg:scanned?Math.round((totalWeightKg/scanned)*1000)/1000:0,baggedParcels,uniqueBags:bags.size,overdueTotal,criticalTotal,bandTotals,
-    fd:sortedGroups(fd),lh:sortedGroups(lh),actions:sortedCounts(actions),parcelStates:sortedCounts(parcelStates),managerPhones:sortedCounts(managerPhones),bagGroups:bagGroupList,cells:[...cells.values()].map((x)=>({...x,w:Math.round(x.w*1000)/1000})),updatedAt:sourceAt
-  };
+  const complete=scan.complete&&scanned===total,snapshotAvailable=complete&&branchId>0?await persistSnapshot(branchId,snapshotId,snapshotPages,total,sourceAt,expiresAt):false,finalComplete=complete&&snapshotAvailable;
+  let bagGroupList=[...bagGroups.values()].map((g:any)=>({pack:g.pack,route:g.route,destination:g.destination,currentCount:g.currentCount,weightKg:Math.round(g.weightKg*1000)/1000,maxAgeHours:g.maxAgeHours===null?null:Math.round(g.maxAgeHours*100)/100,over24:g.over24,over48:g.over48,latestAt:g.latestAt?new Date(g.latestAt).toISOString():null,managerCount:g.managerPhones.size})).sort((a:any,b:any)=>b.over48-a.over48||b.over24-a.over24||b.currentCount-a.currentCount||a.pack.localeCompare(b.pack));
+  const base:any={...scan,complete:finalComplete,reason:!complete?scan.reason:snapshotAvailable?null:'snapshot_write_failed',schemaVersion:SCHEMA_VERSION,total,scanned,pages,snapshotStore:snapshotAvailable?'live_cache_pages':null,snapshotId:snapshotAvailable?snapshotId:null,snapshotPages:snapshotAvailable?snapshotPages.length:0,snapshotExpiresAt:snapshotAvailable?expiresAt:null,ownHubName:branch?.own_hub_name||branch?.name||branch?.code||'',fdCount,lhCount,singleParcels,totalWeightKg:Math.round(totalWeightKg*1000)/1000,avgWeightKg:scanned?Math.round((totalWeightKg/scanned)*1000)/1000:0,baggedParcels,uniqueBags:bags.size,overdueTotal,criticalTotal,bandTotals,fd:sortedGroups(fd),lh:sortedGroups(lh),actions:sortedCounts(actions),parcelStates:sortedCounts(parcelStates),managerPhones:sortedCounts(managerPhones),bagGroups:bagGroupList,cells:[...cells.values()].map((x)=>({...x,w:Math.round(x.w*1000)/1000})),updatedAt:sourceAt};
+  let prior:any=null,previousAt='';try{const old=(await db(`summary_cache?cache_key=eq.${encodeURIComponent(`b:${branchId}:summary:full-analytics-v1`)}&select=payload,source_updated_at&limit=1`))?.[0];prior=old?.payload||null;previousAt=String(old?.source_updated_at||prior?.sourceAt||'');}catch{}
+  const comparisonAvailable=!!(finalComplete&&prior?.complete===true&&previousAt&&Date.parse(previousAt)<Date.parse(sourceAt));
+  bagGroupList=enrichBagGroups(prior,bagGroupList,sourceAt,previousAt,comparisonAvailable);base.bagGroups=bagGroupList;base.changes=changeSummary(prior,base,previousAt,sourceAt,comparisonAvailable);
+  base.attention={stuckResidual:bagGroupList.filter((g:any)=>g.route==='lh'&&g.currentCount<=10&&g.stagnantMinutes>=60).sort((a:any,b:any)=>b.stagnantMinutes-a.stagnantMinutes||b.over48-a.over48).slice(0,25),criticalBags:bagGroupList.filter((g:any)=>g.route==='lh'&&g.over48>0).sort((a:any,b:any)=>b.over48-a.over48||b.maxAgeHours-a.maxAgeHours).slice(0,25)};
+  return base;
 }
