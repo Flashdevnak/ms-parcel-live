@@ -1,5 +1,8 @@
 // One bounded scan budget, including a possible retry. Never walk 100-row pages.
 export const MAX_PAGES = 30;
+
+function rowId(row) { return String(row?.pno || '').trim(); }
+
 export async function collectSnapshot(fetchPage, pageSize = 10000) {
   let requests = 0;
   let result;
@@ -42,26 +45,62 @@ export async function collectSnapshot(fetchPage, pageSize = 10000) {
 
     const seen = new Set(); let duplicates = 0, missingIds = 0;
     const rowPages = all.map(page => page.rows.filter(row => {
-      const id = String(row?.pno || '').trim();
+      const id = rowId(row);
       if (!id) { missingIds++; return false; }
       if (seen.has(id)) { duplicates++; return false; }
       seen.add(id); return true;
     }));
     const sourceTotals = all.map(p=>Number(p.total));
-    const stableTotal = sourceTotals.every(t => t === total);
+    let stableTotal = sourceTotals.every(t => t === total);
     const nonFinalCounts = all.slice(0, Math.max(1, all.length - 1)).map(p => p.rows.length);
     const acceptedPageSize = nonFinalCounts.length ? Math.max(...nonFinalCounts) : observed;
+
+    // Production source occasionally reports a stable total while page 1 is a
+    // few rows shorter than the requested page size and later pages still use
+    // the requested offset. That leaves a real boundary gap (for example 9,998
+    // then page 2 starts at 10,000). Recover the gap with one overlapping read
+    // whose page-2 offset starts exactly at the observed page-1 length. Only
+    // source rows with real parcel IDs are added; nothing is synthesized.
+    let boundaryRepair = null;
+    const shortBy = pageSize - observed;
+    const laterFull = all.length > 1 && all.slice(1, -1).every(p => p.rows.length === pageSize);
+    const repairCandidate = stableTotal && pageShapeStable && duplicates === 0 && missingIds === 0 &&
+      seen.size < total && observed > 100 && shortBy > 0 && shortBy <= 100 && laterFull && requests < MAX_PAGES;
+    if (repairCandidate) {
+      const repairPageSize = observed;
+      const repair = await fetchPage(2, repairPageSize, total); requests++;
+      const repairTotal = Number(repair.total);
+      sourceTotals.push(repairTotal);
+      stableTotal = stableTotal && repairTotal === total;
+      let recovered = 0, repairMissingIds = 0, repairOverlap = 0;
+      const recoveredRows = [];
+      if (stableTotal) {
+        for (const row of repair.rows) {
+          const id = rowId(row);
+          if (!id) { repairMissingIds++; continue; }
+          if (seen.has(id)) { repairOverlap++; continue; }
+          seen.add(id); recoveredRows.push(row); recovered++;
+        }
+      }
+      if (recoveredRows.length) rowPages.push(recoveredRows);
+      missingIds += repairMissingIds;
+      boundaryRepair = { page:2, pageSize:repairPageSize, shortBy, recovered, overlap:repairOverlap, total:repairTotal };
+    }
+
     const complete = pageShapeStable && seen.size === total && !duplicates && !missingIds && stableTotal;
+    const reason = complete ? null : !stableTotal ? 'source_changed' : !pageShapeStable ? 'page_shape_changed' : duplicates ? 'duplicate_parcels' : missingIds ? 'missing_parcel_ids' : 'row_count_mismatch';
     result = {
       total,probeTotal,requestedPageSize:pageSize,sourcePageSize:observed,effectivePageSize:stride,acceptedPageSize:acceptedPageSize||0,
       pages,maxPages:MAX_PAGES,attempt,complete,scanned:seen.size,requests,duplicates,missingIds,stableTotal,pageShapeStable,
-      pageCounts:all.map(p=>p.rows.length),sourceTotals,
-      reason:complete?null:!stableTotal?'source_changed':!pageShapeStable?'page_shape_changed':duplicates?'duplicate_parcels':missingIds?'missing_parcel_ids':'row_count_mismatch',rowPages
+      pageCounts:all.map(p=>p.rows.length),sourceTotals,boundaryRepair,reason,rowPages
     };
     if (complete) return result;
 
-    // A retry must fit completely inside the same hard request ceiling. Never
-    // return a merged inventory across attempts.
+    // A stable exact-count mismatch that was not repaired should not repeat the
+    // same expensive full pass. Retry only when the source itself changed or
+    // the page/identity shape was unstable and the entire retry still fits the
+    // same hard request ceiling.
+    if (reason === 'row_count_mismatch') return result;
     const retryPages = Math.max(1, Math.ceil(total / Math.max(1, stride)));
     if (requests + 1 + retryPages > MAX_PAGES) return result;
   }
