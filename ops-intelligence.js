@@ -20,4 +20,19 @@ function render(){install();const root=$('control-room-intelligence-root');if(!r
   $('wallboard-open-btn')?.classList.remove('hidden');renderWallboard();
 }
 function minute(v){const n=Number(v||0);return`${String(Math.floor(n/60)).padStart(2,'0')}:${String(n%60).padStart(2,'0')}`;}
-function renderWallboard(){if(!a||!$('wallboard-kpis'))return;const freshAt=a.sourceAt||a.updatedAt||'',age=freshAt?Math.max(0,Math.floor((Date.now()-Date.parse(freshAt))/60000)):null,top=[...(a.lh||[]).map(g=>({...g,route:'LH'}),),(...(a.fd||[]).map(g=>({...g,route:'FD'})));}
+function renderWallboard(){
+  if(!a||!$('wallboard-kpis'))return;
+  const freshAt=a.sourceAt||a.updatedAt||'',freshAge=freshAt&&Number.isFinite(Date.parse(freshAt))?Math.max(0,Math.floor((Date.now()-Date.parse(freshAt))/60000)):null;
+  const top=[...(Array.isArray(a.lh)?a.lh:[]).map(g=>({...g,route:'LH'})),...(Array.isArray(a.fd)?a.fd:[]).map(g=>({...g,route:'FD'}))].sort((x,y)=>Number(y.count||0)-Number(x.count||0)).slice(0,10);
+  const stuck=(Array.isArray(a?.attention?.stuckResidual)?a.attention.stuckResidual:[]).slice(0,10);
+  $('wallboard-subtitle').textContent=`${branch?.code||''}${branch?.name?` · ${branch.name}`:''}${currentShift?` · ${currentShift.name}`:''} · ข้อมูล ${freshAge===null?'ไม่ทราบเวลา':freshAge<1?'ล่าสุดไม่ถึง 1 นาที':`${freshAge} นาทีที่แล้ว`}`;
+  $('wallboard-kpis').innerHTML=[['คงคลัง',a.total],['FD',a.fdCount],['LH',a.lhCount],['≥24 ชม.',over24()],['>48 ชม.',bandTotal('over48')],['เลขแบ็กกิ้ง',a.uniqueBags]].map(([label,value])=>`<article class="wallboard-kpi"><span>${label}</span><strong>${num(value)}</strong></article>`).join('');
+  $('wallboard-body').innerHTML=`<section class="wallboard-panel"><h2>ปลายทางที่มีงานมาก</h2><div class="wallboard-ranking">${top.map((g,i)=>`<div class="wallboard-rank"><b>${i+1}</b><span><strong>${esc(g.route)} · ${esc(g.name)}</strong><small>${Number(g.weightKg||0).toLocaleString('th-TH',{maximumFractionDigits:0})} กก.</small></span><strong>${num(g.count)}</strong></div>`).join('')||'<div>ยังไม่มีข้อมูล</div>'}</div></section><section class="wallboard-panel"><h2>LH ถุงที่ควรตรวจ</h2><div class="wallboard-ranking">${stuck.map((g,i)=>`<div class="wallboard-rank"><b>${i+1}</b><span><strong>${esc(g.destination||'-')}</strong><small>${esc(g.pack)} · เหลือ ${num(g.currentCount)} / สูงสุดที่เคยพบ ${num(g.peakObserved)}</small></span><strong>${num(g.stagnantMinutes)} นาที</strong></div>`).join('')||'<div>ยังไม่มีถุงที่คงที่ตามเกณฑ์</div>'}</div></section>`;
+}
+
+install();
+window.addEventListener('ms-full-analytics',event=>{a=event.detail||null;render();});
+window.addEventListener('ms-branch-ready',event=>{branch=event.detail||null;render();});
+window.addEventListener('ms-shift-state',event=>{currentShift=event.detail?.currentShift||null;render();});
+window.addEventListener('ms-session-reset',()=>{a=null;branch=null;currentShift=null;$('wallboard-open-btn')?.classList.add('hidden');const root=$('control-room-intelligence-root');if(root)root.innerHTML='';});
+if(window.__MS_FULL_ANALYTICS){a=window.__MS_FULL_ANALYTICS;render();}
