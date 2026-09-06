@@ -1,10 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { asBranchId, authenticate, authPasswordLogin, cors, db, encryptCredential, ensureProfile, errMessage, hashPage, hashSummary, json, normalizeUsername, publicProfile, validUsername } from './core.ts';
-import { createBranch, changeUser, createManagedUser, listUsers } from './admin.ts';
+import { changeBranch, createBranch, changeUser, createManagedUser, listUsers } from './admin.ts';
 import { buildFullAnalytics } from './analytics.ts';
 import { claimAnalyticsLease } from './refresh-lease.js';
 import { changeShift, listShifts } from './shifts.ts';
-import { diffRows, fetchLivePage, fetchSummary, getConnection, listBranches, liveResponseFromCache, oldHashForCache, pickHarRequest, resolveBranch, updateConnectionHealth } from './ms.ts';
+import { diffRows, fetchLivePage, fetchSummary, getConnection, listAccessibleBranches, listBranches, liveResponseFromCache, oldHashForCache, pickHarRequest, resolveBranch, updateConnectionHealth } from './ms.ts';
 
 Deno.serve(async(req)=>{
   if(req.method==='OPTIONS')return new Response(null,{status:204,headers:cors});
@@ -41,15 +41,17 @@ Deno.serve(async(req)=>{
       if(req.method==='GET')return json({ok:true,data:{branches:await listBranches(false)}});
       if(req.method==='POST'){
         let body:any={};try{body=await req.json();}catch{}
-        if(String(body?.action||'')==='create')return json({ok:true,data:{branch:await createBranch(body)}});
+        const action=String(body?.action||'');
+        if(action==='create')return json({ok:true,data:{branch:await createBranch(body)}});
+        if(action==='update')return json({ok:true,data:{branch:await changeBranch(body)}});
         return json({ok:false,message:'คำสั่งสาขาไม่ถูกต้อง'},400);
       }
     }
 
     if(req.method==='GET'&&route==='status'){
       const requested=asBranchId(u.searchParams.get('branch_id'));
+      const branches=await listAccessibleBranches(profile,true);
       let branch:any=null;try{branch=await resolveBranch(profile,requested);}catch{}
-      const branches=profile.role==='admin'?await listBranches(true):(branch?[branch]:[]);
       const conn=branch?(await db(`ms_connection?branch_id=eq.${branch.id}&select=branch_id,label,store_id,store_name,credential_updated_at,last_ok_at,last_error&limit=1`))?.[0]||null:null;
       return json({ok:true,data:{profile:publicProfile(profile),branch,branches,connection:conn}});
     }
@@ -58,8 +60,9 @@ Deno.serve(async(req)=>{
     const requestedBranch=asBranchId(u.searchParams.get('branch_id')),branch=await resolveBranch(profile,requestedBranch),branchId=Number(branch.id);
 
     if(route==='shifts'){
-      if(req.method==='GET')return json({ok:true,data:{branchId,shifts:await listShifts(branchId)}});
+      if(req.method==='GET')return json({ok:true,data:{branchId,canManage:profile.role==='admin'||branch.can_manage_shift!==false,shifts:await listShifts(branchId)}});
       if(req.method==='POST'){
+        if(profile.role!=='admin'&&branch.can_manage_shift===false)return json({ok:false,message:'ไม่มีสิทธิ์แก้กะของ HUB/สาขานี้'},403);
         let body:any={};try{body=await req.json();}catch{}
         return json({ok:true,data:{shift:await changeShift(authUser.id,branchId,body)}});
       }
@@ -67,7 +70,7 @@ Deno.serve(async(req)=>{
     }
 
     if(req.method==='POST'&&route==='har'){
-      const allowed=profile.role==='admin'||(!!profile.can_upload_har&&Number(profile.branch_id||0)===branchId);
+      const allowed=profile.role==='admin'||branch.can_upload_har===true;
       if(!allowed)return json({ok:false,message:'ไม่มีสิทธิ์อัปโหลด HAR ของสาขานี้'},403);
       const text=await req.text();if(text.length>25_000_000)return json({ok:false,message:'HAR ใหญ่เกิน 25 MB'},413);
       let har:any;try{har=JSON.parse(text);}catch{return json({ok:false,message:'ไฟล์ HAR ไม่ใช่ JSON ที่ถูกต้อง'},400);}
