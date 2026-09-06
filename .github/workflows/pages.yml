@@ -35,6 +35,7 @@ jobs:
           node --check auth-client.js
           node --check dropdowns.js
           node tests-data.mjs
+          node tests-lease.mjs
       - name: Setup Deno
         uses: denoland/setup-deno@v2
         with:
@@ -46,13 +47,16 @@ jobs:
           npm install --prefix /tmp/ms-parcel-ui-test --no-package-lock --no-save jsdom@26.1.0
           NODE_PATH=/tmp/ms-parcel-ui-test/node_modules node tests-ui.mjs
       - name: Configure Pages
+        if: ${{ !contains(github.event.head_commit.message, '[skip pages]') }}
         uses: actions/configure-pages@v5
         with:
           enablement: true
       - name: Upload site
+        if: ${{ !contains(github.event.head_commit.message, '[skip pages]') }}
         uses: actions/upload-pages-artifact@v3
         with:
           path: .
       - name: Deploy
+        if: ${{ !contains(github.event.head_commit.message, '[skip pages]') }}
         id: deployment
         uses: actions/deploy-pages@v4

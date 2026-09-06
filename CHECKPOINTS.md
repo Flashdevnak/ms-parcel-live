@@ -1,5 +1,18 @@
 # Checkpoints
 
+## Control Room resume — 2026-09-06 / Phase 0 IN PROGRESS
+- Verified latest main base: `f2a08233b37463572d07cd6782514e8a17a1260f`.
+- Management API: deployed Edge version 24, ACTIVE, verify_jwt=false. Do not redeploy v13 over this version.
+- Retrieved all six deployed source files: differences from main are comments/formatting; scanner request size is now 10000 (snapshot chunk size 5000), not the historical v13 request size. Preserve the newer source behavior pending source verification.
+- Authenticated production browser: Admin login and session restoration after reload PASS; NE1 live reads and HAR health working. This is not a general-user/RLS/multi-device acceptance test.
+- Production analytics cache observed: 2026-09-06 11:13:06 UTC, scanned=59545, total=59547, complete=false, reason=row_count_mismatch, source page counts [9998,10000,10000,10000,10000,9547], all page totals=59547, requests=14. No snapshot rows currently present. CP-v13-12 and CP-v13-13 remain NOT PASS.
+- Active configured branches are NE1 and EA2; NE4 is not configured. Do not fabricate a NE4 production load-test result.
+- All seven existing public tables have RLS enabled. Policy behavior and multi-branch-user access still require runtime tests.
+- Phase-0 repair: backend-only full-analytics lease reuses cache_refresh_leases, isolated per branch and separate from frontend's short transfer-summary lease. A 180-second crash lease exceeds the Free worker lifetime; conditional release cannot unlock a successor. Cache rechecked after claim. No new table, migration, cron, auth change, or HAR exposure.
+- LOCAL PASS: existing tests-data.mjs, tests-ui.mjs (jsdom 26.1.0), root JavaScript syntax; tests-lease.mjs simulates 40 concurrent clients across two branches, one leader each, crash expiry, stale release and fail-closed DB errors. SIMULATION ONLY, not production load PASS.
+- CI supports an explicit [skip pages] commit marker so backend/checkpoint verification does not publish frontend before CP-v13-12. No asset versions bumped.
+- Remaining: CI Edge typecheck, deploy verified backend repair, authenticated production cache/coalescing checks, diagnose incomplete inventory without filling missing rows, then finish CP-v13-12 before frontend publication or new features.
+
 - [x] Confirmed source is parcel data, not truck data.
 - [x] Parsed HAR and identified `unfinished_parcel_list` + lightweight summary endpoint.
 - [x] Parsed XLSX structure: 23 columns, 94,820 data rows.

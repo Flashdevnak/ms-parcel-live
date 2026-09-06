@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { asBranchId, authenticate, authPasswordLogin, cors, db, encryptCredential, ensureProfile, errMessage, hashPage, hashSummary, json, normalizeUsername, publicProfile, validUsername } from './core.ts';
 import { createBranch, changeUser, createManagedUser, listUsers } from './admin.ts';
 import { buildFullAnalytics } from './analytics.ts';
+import { claimAnalyticsLease } from './refresh-lease.js';
 import { diffRows, fetchLivePage, fetchSummary, getConnection, listBranches, liveResponseFromCache, oldHashForCache, pickHarRequest, resolveBranch, updateConnectionHealth } from './ms.ts';
 
 Deno.serve(async(req)=>{
@@ -87,6 +88,16 @@ Deno.serve(async(req)=>{
     if(req.method==='GET'&&route==='analytics'){
       const cacheKey=`b:${branchId}:summary:full-analytics-v1`,cached=await db(`summary_cache?cache_key=eq.${encodeURIComponent(cacheKey)}&select=*&limit=1`),c=cached?.[0];
       if(c?.payload?.schemaVersion===10&&new Date(c.expires_at).getTime()>Date.now())return json({ok:true,data:c.payload,meta:{cache:'hit',expiresAt:c.expires_at,ttlMs:Math.max(0,new Date(c.expires_at).getTime()-Date.now()),branchId}});
+      const release=await claimAnalyticsLease(db,branchId,authUser.id);
+      if(!release){
+        if(c?.payload)return json({ok:true,data:c.payload,meta:{cache:'coalesced',stale:true,refreshing:true,ttlMs:15000,branchId}});
+        return json({ok:false,message:'กำลังรวบรวมข้อมูลของ HUB นี้ กรุณารอสักครู่',meta:{cache:'coalesced',refreshing:true,ttlMs:15000,branchId}},202);
+      }
+      try{
+      // A completed leader may have populated the cache between our first
+      // cache read and atomic claim. Never start another scan in that race.
+      const latest=(await db(`summary_cache?cache_key=eq.${encodeURIComponent(cacheKey)}&select=*&limit=1`))?.[0];
+      if(latest?.payload?.schemaVersion===10&&new Date(latest.expires_at).getTime()>Date.now())return json({ok:true,data:latest.payload,meta:{cache:'hit-after-lease',ttlMs:Math.max(0,new Date(latest.expires_at).getTime()-Date.now()),branchId}});
       const conn=await getConnection(branchId);
       try{
         const analytics=await buildFullAnalytics(conn,branch,10000),sourceAt=new Date().toISOString(),ttlMs=analytics.complete?30*60_000:5*60_000,expiresAt=new Date(Date.now()+ttlMs).toISOString(),payload={...analytics,sourceAt,branchId},hash=await hashSummary(payload);
@@ -94,6 +105,7 @@ Deno.serve(async(req)=>{
         await updateConnectionHealth(conn,true);
         return json({ok:true,data:payload,meta:{cache:'miss',ttlMs,branchId}});
       }catch(e){const m=errMessage(e);await updateConnectionHealth(conn,false,m);if(c?.payload)return json({ok:true,data:c.payload,meta:{cache:'stale',stale:true,error:m,ttlMs:60_000,branchId}});return json({ok:false,message:m},502);}
+      }finally{try{await release();}catch{/* Crash-safe lease expires without deleting configuration. */}}
     }
 
     if(req.method==='GET'&&route==='live'){
