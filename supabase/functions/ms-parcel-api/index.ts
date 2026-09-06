@@ -18,9 +18,10 @@ import {
 import { changeBranch, createBranch, changeUser, createManagedUser, listUsers } from './admin.ts';
 import { buildFullAnalytics } from './analytics.ts';
 import { systemHealth } from './health.ts';
+import { buildBaseline, historyRows, recordAggregateHistory } from './ops-history.ts';
 import { claimAnalyticsLease } from './refresh-lease.js';
 import { recordShiftSnapshot, shiftSummary } from './shift-metrics.ts';
-import { changeShift, listShifts } from './shifts.ts';
+import { changeShift, currentShift, listShifts } from './shifts.ts';
 import {
   diffRows,
   fetchLivePage,
@@ -115,7 +116,13 @@ Deno.serve(async (req) => {
 
     if (route === 'shifts') {
       if (req.method === 'GET') {
-        return json({ ok: true, data: { branchId, canManage: profile.role === 'admin' || branch.can_manage_shift !== false, shifts: await listShifts(branchId) } });
+        const effectiveDate = String(u.searchParams.get('effective_date') || '').trim() || undefined;
+        return json({ ok: true, data: {
+          branchId,
+          canManage: profile.role === 'admin' || branch.can_manage_shift !== false,
+          currentShift: await currentShift(branchId),
+          shifts: await listShifts(branchId, effectiveDate),
+        } });
       }
       if (req.method === 'POST') {
         if (profile.role !== 'admin' && branch.can_manage_shift === false) return json({ ok: false, message: 'ไม่มีสิทธิ์แก้กะของ HUB/สาขานี้' }, 403);
@@ -128,6 +135,11 @@ Deno.serve(async (req) => {
 
     if (req.method === 'GET' && route === 'shift-summary') {
       return json({ ok: true, data: { branchId, ...(await shiftSummary(branchId)) } });
+    }
+
+    if (req.method === 'GET' && route === 'history') {
+      const hours = Math.max(1, Math.min(45 * 24, Number(u.searchParams.get('hours') || 168) || 168));
+      return json({ ok: true, data: { branchId, hours, rows: await historyRows(branchId, hours) } });
     }
 
     if (req.method === 'POST' && route === 'har') {
@@ -220,10 +232,14 @@ Deno.serve(async (req) => {
           const ttlMs = analytics.complete ? 30 * 60_000 : 5 * 60_000;
           const expiresAt = new Date(Date.now() + ttlMs).toISOString();
           let shiftSnapshot: any = null;
+          let baseline: any = { available: false, reason: 'incomplete_snapshot' };
+          let aggregateBucket: any = null;
           if (analytics.complete) {
             try { shiftSnapshot = await recordShiftSnapshot(branchId, analytics, sourceAt); } catch {}
+            try { baseline = await buildBaseline(branchId, analytics, sourceAt, shiftSnapshot); } catch {}
+            try { aggregateBucket = await recordAggregateHistory(branchId, analytics, sourceAt, shiftSnapshot); } catch {}
           }
-          const payload = { ...analytics, sourceAt, branchId, shiftSnapshot };
+          const payload = { ...analytics, sourceAt, branchId, shiftSnapshot, baseline, aggregateBucketAt: aggregateBucket?.bucket_at || null };
           const hash = await hashSummary(payload);
           await db('summary_cache?on_conflict=cache_key', {
             method: 'POST',
