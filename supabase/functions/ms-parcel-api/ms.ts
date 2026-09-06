@@ -7,7 +7,6 @@ export function managerDisplay(r:any){
   return [storeLine,managerName,managerPhone].filter((value,index)=>index===0||value!=='').join('\n');
 }
 
-
 export function slimRow(r: any) {
   return {
     pno:r?.pno??null,state_name:r?.state_name??null,cod_amount:r?.cod_amount??null,store_weight:r?.store_weight??null,
@@ -70,7 +69,20 @@ export function pickHarRequest(har:any){
 }
 function sourceHeaders(conn:any){return{'Accept':'application/json, text/plain, */*','Accept-Language':'th','BI-PLATFORM':'','Referer':`${conn.fbi_base_url}/fbi-ui/`,'User-Agent':'Mozilla/5.0'};}
 function applyBase(url:URL,conn:any){const params={...(conn.query_template||{}),...(conn.credential||{})};for(const[k,v]of Object.entries(params))if(v!==undefined&&v!==null&&String(v)!=='')url.searchParams.set(k,String(v));}
-async function fetchJson(url:URL,conn:any){const res=await fetch(url.toString(),{method:'GET',headers:sourceHeaders(conn)}),text=await res.text();if(!res.ok)throw new Error(`MS ${res.status}: ${text.slice(0,300)}`);let obj:any;try{obj=JSON.parse(text);}catch{throw new Error('MS ตอบกลับไม่ใช่ JSON');}if(Number(obj?.code)!==1)throw new Error(obj?.msg||'MS ไม่อนุญาตให้อ่านข้อมูล');return obj;}
+const MS_FETCH_TIMEOUT_MS=25_000;
+async function fetchJson(url:URL,conn:any){
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),MS_FETCH_TIMEOUT_MS);
+  try{
+    const res=await fetch(url.toString(),{method:'GET',headers:sourceHeaders(conn),signal:controller.signal}),text=await res.text();
+    if(!res.ok)throw new Error(`MS ${res.status}: ${text.slice(0,300)}`);
+    let obj:any;try{obj=JSON.parse(text);}catch{throw new Error('MS ตอบกลับไม่ใช่ JSON');}
+    if(Number(obj?.code)!==1)throw new Error(obj?.msg||'MS ไม่อนุญาตให้อ่านข้อมูล');
+    return obj;
+  }catch(e){
+    if(controller.signal.aborted)throw new Error(`MS ตอบกลับช้าเกิน ${Math.round(MS_FETCH_TIMEOUT_MS/1000)} วินาที`);
+    throw e;
+  }finally{clearTimeout(timer);}
+}
 export async function fetchLivePage(conn:any,page:number,pageSize:number,totalHint?:number){const url=new URL(conn.endpoint_path,conn.fbi_base_url);applyBase(url,conn);url.searchParams.set('page',String(page));url.searchParams.set('page_size',String(pageSize));if(Number.isFinite(totalHint))url.searchParams.set('total',String(Math.max(0,Math.trunc(Number(totalHint)))));const obj=await fetchJson(url,conn);return{rows:(Array.isArray(obj?.data?.list)?obj.data.list:[]).map(slimRow),total:Number(obj?.data?.total||0)};}
 export async function fetchSummary(conn:any){const url=new URL('/api/dc/dc_delivery_transfer_list',conn.fbi_base_url);applyBase(url,conn);url.searchParams.delete('store_id');url.searchParams.delete('time_key');url.searchParams.set('type','1');url.searchParams.set('key','transfer');const obj=await fetchJson(url,conn),rows=Array.isArray(obj?.data?.data)?obj.data.data:[],target:any=rows.find((r:any)=>String(r?.store_id||'')===String(conn.store_id||''))||rows[0]||{};return{storeId:target.store_id||conn.store_id||'',storeName:target.store_name||conn.store_name||'',region:target.store_area||'',total:Number(target.transfer_total||0),day1:Number(target.transfer_1||0),day2:Number(target.transfer_2||0),day3:Number(target.transfer_3||0),day4:Number(target.transfer_4||0),day5plus:Number(target.transfer_5||0)};}
 
