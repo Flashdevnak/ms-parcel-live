@@ -50,8 +50,6 @@ using (
 
 grant select on public.ops_aggregate_history to authenticated;
 
-authorization revoke all on function public.system_quota_health() from public;
-
 create or replace function public.cleanup_ops_history()
 returns jsonb
 language plpgsql
