@@ -3,6 +3,7 @@ import { asBranchId, authenticate, authPasswordLogin, cors, db, encryptCredentia
 import { createBranch, changeUser, createManagedUser, listUsers } from './admin.ts';
 import { buildFullAnalytics } from './analytics.ts';
 import { claimAnalyticsLease } from './refresh-lease.js';
+import { changeShift, listShifts } from './shifts.ts';
 import { diffRows, fetchLivePage, fetchSummary, getConnection, listBranches, liveResponseFromCache, oldHashForCache, pickHarRequest, resolveBranch, updateConnectionHealth } from './ms.ts';
 
 Deno.serve(async(req)=>{
@@ -56,6 +57,15 @@ Deno.serve(async(req)=>{
     if(profile.access_status!=='active')return json({ok:false,message:profile.access_status==='disabled'?'บัญชีนี้ถูกระงับการใช้งาน':'บัญชีนี้ยังไม่เปิดใช้งาน'},403);
     const requestedBranch=asBranchId(u.searchParams.get('branch_id')),branch=await resolveBranch(profile,requestedBranch),branchId=Number(branch.id);
 
+    if(route==='shifts'){
+      if(req.method==='GET')return json({ok:true,data:{branchId,shifts:await listShifts(branchId)}});
+      if(req.method==='POST'){
+        let body:any={};try{body=await req.json();}catch{}
+        return json({ok:true,data:{shift:await changeShift(authUser.id,branchId,body)}});
+      }
+      return json({ok:false,message:'Method not allowed'},405);
+    }
+
     if(req.method==='POST'&&route==='har'){
       const allowed=profile.role==='admin'||(!!profile.can_upload_har&&Number(profile.branch_id||0)===branchId);
       if(!allowed)return json({ok:false,message:'ไม่มีสิทธิ์อัปโหลด HAR ของสาขานี้'},403);
@@ -94,8 +104,6 @@ Deno.serve(async(req)=>{
         return json({ok:false,message:'กำลังรวบรวมข้อมูลของ HUB นี้ กรุณารอสักครู่',meta:{cache:'coalesced',refreshing:true,ttlMs:15000,branchId}},202);
       }
       try{
-      // A completed leader may have populated the cache between our first
-      // cache read and atomic claim. Never start another scan in that race.
       const latest=(await db(`summary_cache?cache_key=eq.${encodeURIComponent(cacheKey)}&select=*&limit=1`))?.[0];
       if(latest?.payload?.schemaVersion===10&&new Date(latest.expires_at).getTime()>Date.now())return json({ok:true,data:latest.payload,meta:{cache:'hit-after-lease',ttlMs:Math.max(0,new Date(latest.expires_at).getTime()-Date.now()),branchId}});
       const conn=await getConnection(branchId);
