@@ -44,10 +44,21 @@ assert.equal(a.complete,true);assert.equal(a.pages,3);assert.equal(a.sourcePageS
 calls=0;a=await collectSnapshot(async(p,size,totalHint)=>{calls++;if(totalHint===0)return {total:12045,rows:rows(0,9998)};return {total:12000,rows:p===1?rows(0,10000):rows(10000,2000)}},10000);
 assert.equal(a.complete,true);assert.equal(a.probeTotal,12045);assert.equal(a.total,12000);assert.equal(a.scanned,12000);assert.equal(a.sourcePageSize,10000);assert.equal(a.stableTotal,true);assert.equal(calls,3);
 
-// If page 1 is still genuinely short inside the anchored pass, exact-count
-// validation must keep the result incomplete; never fill or invent two rows.
+// Production boundary-gap pattern: page 1 is truly short by two while page 2
+// still starts at the requested 10k offset. One overlapping page-2 request at
+// size=9998 must recover only real IDs 9998/9999; no rows are fabricated.
+calls=0;a=await collectSnapshot(async(p,size,totalHint)=>{
+  calls++;
+  if(p===1)return {total:12000,rows:rows(0,9998)};
+  if(size===9998)return {total:12000,rows:rows(9998,2002)};
+  return {total:12000,rows:rows(10000,2000)};
+},10000);
+assert.equal(a.complete,true);assert.equal(a.scanned,12000);assert.equal(a.reason,null);assert.equal(a.requests,4);assert.equal(calls,4);assert.equal(a.boundaryRepair.shortBy,2);assert.equal(a.boundaryRepair.recovered,2);assert.equal(a.boundaryRepair.pageSize,9998);
+
+// If the overlap request cannot reveal the missing IDs, keep the inventory
+// incomplete and stop instead of repeating the same expensive stable mismatch.
 calls=0;a=await collectSnapshot(async(p,size,totalHint)=>{calls++;return {total:12000,rows:p===1?rows(0,9998):rows(10000,2000)}},10000);
-assert.equal(a.complete,false);assert.equal(a.reason,'row_count_mismatch');assert.equal(a.pages,2);assert.equal(a.effectivePageSize,10000);assert.equal(a.scanned,11998);assert.equal(calls,6);
+assert.equal(a.complete,false);assert.equal(a.reason,'row_count_mismatch');assert.equal(a.scanned,11998);assert.equal(a.requests,4);assert.equal(calls,4);assert.equal(a.boundaryRepair.recovered,0);
 
 // A changing probe total is harmless when the entire concurrent anchored pass
 // agrees on one newer total and contains exactly that many unique parcels.
@@ -69,4 +80,4 @@ assert.equal(rowMatch({store_manager_display:fullManager,store_manager_phone:'08
 const grouped=bags([{pno:'1',pack_num:'bag',dst_hub_name:'NE1_HUB',dst_store_name:'A'},{pno:'2',pack_num:'bag',dst_hub_name:'NE4_HUB'}],branch,Date.now());assert.equal(grouped[0].mixed,true);
 assert.equal(validAnalytics({complete:true,total:2,scanned:3,cells:[{c:3}]}),false);
 const meta={complete:true,total:2,scanned:2,snapshotPages:1};const pages=[{cache_key:'b:1:snapshot:x:p:0001',source_total:2,item_count:2,payload:[['1'],['2']]}];assert.equal(snapshotValid(pages,meta),true);pages[0].payload[1]=['1'];assert.equal(snapshotValid(pages,meta),false);
-console.log('PASS: anchored concurrent scan, FBI total hint, 10k accepted/capped paging, probe-short safety, retry isolation, duplicate/missing/changed totals, 30 request ceiling, zero inventory, Thai time, FD/LH, lossless exact manager/store column including empty/id-only values and multiselect matching, mixed bags, snapshot identity/count');
+console.log('PASS: anchored concurrent scan, exact boundary-gap recovery with real IDs only, bounded retries, duplicate/missing/changed totals, 30 request ceiling, zero inventory, Thai time, FD/LH, exact manager/store column, mixed bags, snapshot identity/count');
