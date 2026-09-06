@@ -29,20 +29,45 @@ export function diffRows(oldRows:any[],newRows:any[]) {
 }
 
 export async function listBranches(activeOnly=true){
-  const rows=await db(`branches?select=id,code,name,store_id,is_active,created_at,updated_at${activeOnly?'&is_active=eq.true':''}&order=code.asc`);
+  const rows=await db(`branches?select=id,code,name,store_id,own_hub_name,hub_aliases,is_active,created_at,updated_at${activeOnly?'&is_active=eq.true':''}&order=code.asc`);
   const conns=await db('ms_connection?select=branch_id,store_id,store_name,credential_updated_at,last_ok_at,last_error,is_active');
   const byBranch=new Map<number,any>((conns||[]).map((c:any)=>[Number(c.branch_id),c]));
   return (rows||[]).map((b:any)=>{const c=byBranch.get(Number(b.id));return {...b,store_id:c?.store_id||b.store_id||null,store_name:c?.store_name||null,has_credential:!!c?.credential_updated_at,credential_updated_at:c?.credential_updated_at||null,last_ok_at:c?.last_ok_at||null,last_error:c?.last_error||null};});
 }
-export async function resolveBranch(profile:any,requested:number){
-  let id=requested||Number(profile?.branch_id||0);
-  if(profile?.role==='admin'&&!id){const branches=await listBranches(true);id=Number(branches?.[0]?.id||0);}
-  if(!id)throw new Error('บัญชียังไม่ได้ผูกสาขา');
-  if(profile?.role!=='admin'&&Number(profile?.branch_id||0)!==id)throw new Error('ไม่มีสิทธิ์เข้าถึงสาขานี้');
-  const rows=await db(`branches?id=eq.${id}&is_active=eq.true&select=id,code,name,store_id,is_active&limit=1`);
-  if(!rows?.[0])throw new Error('ไม่พบสาขาที่เปิดใช้งาน');
-  return rows[0];
+
+export async function listBranchAccess(userId:string){
+  return await db(`user_branch_access?user_id=eq.${encodeURIComponent(userId)}&is_active=eq.true&select=user_id,branch_id,can_upload_har,can_manage_shift,is_active&order=branch_id.asc`)||[];
 }
+
+export async function listAccessibleBranches(profile:any,activeOnly=true){
+  const branches=await listBranches(activeOnly);
+  if(profile?.role==='admin')return branches.map((b:any)=>({...b,can_upload_har:true,can_manage_shift:true}));
+  const access=await listBranchAccess(String(profile?.user_id||''));
+  const byBranch=new Map<number,any>(access.map((a:any)=>[Number(a.branch_id),a]));
+  return branches.filter((b:any)=>byBranch.has(Number(b.id))).map((b:any)=>{
+    const a=byBranch.get(Number(b.id));
+    return {...b,can_upload_har:!!a?.can_upload_har,can_manage_shift:a?.can_manage_shift!==false};
+  });
+}
+
+export async function getBranchAccess(profile:any,branchId:number){
+  if(profile?.role==='admin')return{branch_id:branchId,can_upload_har:true,can_manage_shift:true,is_active:true};
+  const rows=await db(`user_branch_access?user_id=eq.${encodeURIComponent(String(profile?.user_id||''))}&branch_id=eq.${branchId}&is_active=eq.true&select=branch_id,can_upload_har,can_manage_shift,is_active&limit=1`);
+  return rows?.[0]||null;
+}
+
+export async function resolveBranch(profile:any,requested:number){
+  const accessible=await listAccessibleBranches(profile,true);
+  const requestedId=Number(requested||0),homeId=Number(profile?.branch_id||0);
+  let id=requestedId;
+  if(!id&&homeId&&accessible.some((b:any)=>Number(b.id)===homeId))id=homeId;
+  if(!id)id=Number(accessible?.[0]?.id||0);
+  if(!id)throw new Error('บัญชียังไม่ได้รับสิทธิ์ HUB/สาขา');
+  const branch=accessible.find((b:any)=>Number(b.id)===id);
+  if(!branch)throw new Error('ไม่มีสิทธิ์เข้าถึง HUB/สาขานี้');
+  return branch;
+}
+
 export async function getConnection(branchId:number){
   const rows=await db(`ms_connection?branch_id=eq.${branchId}&is_active=eq.true&select=*&limit=1`);
   if(!rows?.[0])throw new Error('สาขานี้ยังไม่ได้ตั้งค่าการเชื่อมต่อ MS');
@@ -61,10 +86,10 @@ export async function updateConnectionHealth(conn:any,ok:boolean,message=''){
 export function pickHarRequest(har:any){
   const entries=Array.isArray(har?.log?.entries)?har.log.entries:[];
   const matches=entries.filter((e:any)=>{try{const u=new URL(e?.request?.url||'');return u.hostname==='fbi.flashexpress.com'&&u.pathname==='/api/dc/unfinished_parcel_list'&&e?.request?.method==='GET';}catch{return false;}});
-  if(!matches.length)throw new Error('HAR นี้ไม่มี request /api/dc/unfinished_parcel_list');
+  if(!matches.length)throw new Error('HAR นี้ไม่มี request ข้อมูลคงคลังที่ระบบรองรับ');
   const req=matches[matches.length-1].request,url=new URL(req.url),ignored=new Set(['page','page_size','export','total']),publicKeys=new Set(['lang','_from','store_id','key','time_key']),queryTemplate:Record<string,string>={},credential:Record<string,string>={};
   for(const[k,v]of url.searchParams.entries()){if(ignored.has(k))continue;if(publicKeys.has(k))queryTemplate[k]=v;else credential[k]=v;}
-  if(!queryTemplate.store_id||!credential.auth)throw new Error('HAR ไม่มี store_id หรือ auth ที่จำเป็น');
+  if(!queryTemplate.store_id||!credential.auth)throw new Error('HAR ไม่มีข้อมูลยืนยันตัวตนที่จำเป็น');
   return{baseUrl:`${url.protocol}//${url.host}`,path:url.pathname,queryTemplate,credential};
 }
 function sourceHeaders(conn:any){return{'Accept':'application/json, text/plain, */*','Accept-Language':'th','BI-PLATFORM':'','Referer':`${conn.fbi_base_url}/fbi-ui/`,'User-Agent':'Mozilla/5.0'};}
