@@ -96,11 +96,10 @@ export async function collectSnapshot(fetchPage, pageSize = 10000) {
     };
     if (complete) return result;
 
-    // A stable exact-count mismatch that was not repaired should not repeat the
-    // same expensive full pass. Retry only when the source itself changed or
-    // the page/identity shape was unstable and the entire retry still fits the
-    // same hard request ceiling.
-    if (reason === 'row_count_mismatch') return result;
+    // If a stable boundary-gap repair ran and still could not reveal real IDs,
+    // repeating the identical pass only burns source quota. Other unstable
+    // shapes still get one isolated retry within the same hard request budget.
+    if (reason === 'row_count_mismatch' && boundaryRepair) return result;
     const retryPages = Math.max(1, Math.ceil(total / Math.max(1, stride)));
     if (requests + 1 + retryPages > MAX_PAGES) return result;
   }
