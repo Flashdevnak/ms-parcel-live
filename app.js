@@ -1,4 +1,4 @@
-import {supabase} from './auth-client.js?v=20260906-smart-leader-v23';
+import {supabase} from './auth-client.js?v=20260906-handoff-v24';
 
 const CONFIG = {
   supabaseUrl: 'https://afhnfnfbqdqqzrghovfc.supabase.co',
