@@ -144,3 +144,12 @@
 - Source totals during final attempt: 66013,65984,65981,65981,65955,65955,65955,65912,65912,65912,65873,65873,65873,65848.
 - Page counts: 4998,5000,5000,5000,5000,5000,5000,5000,5000,5000,5000,5000,5000,848. MS pagination is changing during collection; observed first-page length must not be mistaken for accepted page-size cap.
 - Follow-up preserves labelled partial aggregate views (no partial snapshot/copy) while requiring exact full-data verification for PASS. Shared browser auth client removes multiple GoTrueClient instances.
+
+### Phase 0 verification / deployment gate
+- Repair source main: `8e9a0d6709abf33de9379b57933b8cbb6a541053`.
+- GitHub Actions run `34034508954` / job `101490013145`: frontend syntax, data tests, lease simulation, Deno Edge typecheck and UI tests all SUCCESS. Configure/Upload/Deploy Pages explicitly SKIPPED.
+- Production browser smoke: authenticated Admin can open all six existing views; document width=viewport width=1348 on each. This verifies desktop navigation only, not full snapshot accuracy, mobile/tablet, copy/export completeness or general-user permissions.
+- Edge deployment of the tested repair was REJECTED by automatic approval review: production mutation before the production-verification/cutover gate. No alternate deployment path attempted.
+- Management API checked again after rejection: Edge remains version 24 / ACTIVE / verify_jwt=false. Main intentionally contains the undeployed lease repair; deployed source parity with this repair is NOT PASS.
+- Owner action needed: explicitly authorize deploying the tested backend-only Phase 0 repair while CP-v13-12 is still incomplete, to permit subsequent production verification. Runtime risk: contenders receive a labelled stale result while the branch leader collects data; a crashed leader can hold its lease up to 180s.
+- No frontend asset bump/publication, schema/RLS change, new feature phase, quota/load production PASS, or overall-completion claim.
