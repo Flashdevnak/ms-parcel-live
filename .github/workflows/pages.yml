@@ -41,6 +41,7 @@ jobs:
           node --check multi-hub-ui.js
           node --check quota-health.js
           node --check shift-handover.js
+          node --check operations-tools.js
           node tests-data.mjs
           node tests-lease.mjs
       - name: Setup Deno
