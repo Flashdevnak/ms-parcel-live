@@ -6,20 +6,20 @@
   <meta name="theme-color" content="#151515" />
   <title>MS Parcel Live</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-  <link rel="stylesheet" href="style.css?v=20260906-handoff-v24" />
-  <link rel="stylesheet" href="inspector.css?v=20260906-handoff-v24" />
-  <link rel="stylesheet" href="shell.css?v=20260906-handoff-v24" />
-  <script type="module" src="app.js?v=20260906-handoff-v24"></script>
-  <script type="module" src="ops.js?v=20260906-handoff-v24"></script>
-  <script type="module" src="dropdowns.js?v=20260906-handoff-v24"></script>
-  <link rel="stylesheet" href="ops.css?v=20260906-handoff-v24" />
-  <link rel="stylesheet" href="dropdown-fix.css?v=20260906-handoff-v24" />
+  <link rel="stylesheet" href="style.css?v=20260906-device-har-v25" />
+  <link rel="stylesheet" href="inspector.css?v=20260906-device-har-v25" />
+  <link rel="stylesheet" href="shell.css?v=20260906-device-har-v25" />
+  <script type="module" src="app.js?v=20260906-device-har-v25"></script>
+  <script type="module" src="ops.js?v=20260906-device-har-v25"></script>
+  <script type="module" src="dropdowns.js?v=20260906-device-har-v25"></script>
+  <link rel="stylesheet" href="ops.css?v=20260906-device-har-v25" />
+  <link rel="stylesheet" href="dropdown-fix.css?v=20260906-device-har-v25" />
 </head>
 <body>
   <header class="site-header">
     <div class="site-header-inner">
       <div class="header-brand"><div class="brand-mark">F</div><div class="brand-copy"><strong>MS Parcel Live</strong><span id="live-clock">--:--:--</span></div></div>
-      <div class="topbar-actions"><span id="connection-badge" class="badge badge-neutral">ยังไม่ได้เข้าสู่ระบบ</span><button id="manage-users-btn" class="btn btn-header hidden" type="button">ผู้ใช้</button><button id="manage-branches-btn" class="btn btn-header hidden" type="button">สาขา</button><button id="upload-har-btn" class="btn btn-header hidden" type="button">HAR</button><button id="refresh-btn" class="btn btn-header hidden" type="button">รีเฟรช</button><button id="logout-btn" class="btn btn-header hidden" type="button">ออก</button></div>
+      <div class="topbar-actions"><span id="account-badge" class="account-badge hidden"></span><span id="connection-badge" class="badge badge-neutral">ยังไม่ได้เข้าสู่ระบบ</span><button id="manage-users-btn" class="btn btn-header hidden" type="button">จัดการผู้ใช้</button><button id="manage-branches-btn" class="btn btn-header hidden" type="button">จัดการสาขา</button><button id="upload-har-btn" class="btn btn-header hidden" type="button">HAR</button><button id="refresh-btn" class="btn btn-header hidden" type="button">รีเฟรช</button><button id="logout-btn" class="btn btn-header hidden" type="button">ออก</button></div>
     </div>
   </header>
 
@@ -34,6 +34,7 @@
 
   <main class="app-shell">
     <section class="heading-row compact-heading"><div><h1>ติดตามพัสดุคงคลัง MS</h1></div><div class="heading-actions"><label id="branch-select-wrap" class="branch-select-wrap hidden"><span>ต้นทางที่เลือก</span><select id="branch-select"></select></label><div class="live-note"><span id="live-dot" class="live-dot stale"></span><span id="source-sync">ยังไม่ได้เชื่อมต่อ</span></div></div></section>
+    <section id="har-health" class="har-health hidden" role="status" aria-live="polite"></section>
 
     <section class="panel global-filter-bar">
       <div class="global-filter-top"><strong>ช่วงเวลา</strong><div class="global-filter-actions"><button id="dashboard-time-all" class="mini-btn" type="button">ทั้งหมด</button><button id="dashboard-time-clear" class="mini-btn" type="button">ล้าง</button></div></div>

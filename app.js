@@ -1,4 +1,4 @@
-import {supabase} from './auth-client.js?v=20260906-handoff-v24';
+import {supabase} from './auth-client.js?v=20260906-device-har-v25';
 
 const CONFIG = {
   supabaseUrl: 'https://afhnfnfbqdqqzrghovfc.supabase.co',
@@ -31,6 +31,9 @@ const managerText = (r) => {
 const state = {
   session: null,
   profileRole: 'viewer',
+  profileUsername: '',
+  profileDisplayName: '',
+  connection: null,
   accessStatus: 'pending',
   canUploadHar: false,
   profileBranchId: 0,
@@ -247,6 +250,66 @@ function setConnection(type, text) {
   $('live-dot').className = `live-dot ${type === 'ok' ? 'live' : type === 'bad' ? 'error' : 'stale'}`;
 }
 
+
+function isHarCredentialError(message) {
+  const text = String(message || '').toLowerCase();
+  if (!text) return false;
+  return /\bms\s*(401|403)\b|unauthori[sz]ed|forbidden|auth(?:entication)?\s*(?:expired|invalid|fail)|session\s*(?:expired|invalid)|token\s*(?:expired|invalid)|cookie\s*(?:expired|invalid)|credential\s*(?:expired|invalid)|login\s*(?:expired|required)|หมดอายุ|เข้าสู่ระบบใหม่|ไม่อนุญาตให้อ่านข้อมูล/.test(text);
+}
+
+function statusTime(value) {
+  const t = Date.parse(String(value || ''));
+  return Number.isFinite(t) ? new Date(t).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }) : 'ยังไม่มี';
+}
+
+function notifyHarExpiredOnce(message) {
+  const key = `ms-har-alert:${branchId()}:${String(message || '').slice(0,80)}`;
+  try {
+    if (sessionStorage.getItem(key)) return;
+    sessionStorage.setItem(key, '1');
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification('MS Parcel Live', { body: `${currentBranch()?.code || ''} HAR ต้องอัปเดตเพื่ออ่านข้อมูล MS ต่อ` });
+    }
+  } catch {}
+}
+
+function renderHarHealth(conn = state.connection) {
+  const el = $('har-health');
+  if (!el) return;
+  state.connection = conn || null;
+  if (!state.session || !branchId()) { el.className = 'har-health hidden'; el.innerHTML = ''; return; }
+  const credentialAt = conn?.credential_updated_at || '';
+  const lastOk = conn?.last_ok_at || '';
+  const error = String(conn?.last_error || '');
+  const branchName = currentBranch()?.code || 'ต้นทางนี้';
+  if (!credentialAt) {
+    el.className = 'har-health neutral';
+    el.innerHTML = `<strong>${branchName} · ยังไม่มี HAR</strong><span>อัปโหลด HAR ก่อนเริ่มอ่านข้อมูล MS</span>`;
+    return;
+  }
+  if (error && isHarCredentialError(error)) {
+    el.className = 'har-health bad';
+    el.innerHTML = `<strong>${branchName} · HAR ต้องอัปเดต</strong><span>MS ปฏิเสธข้อมูลยืนยันตัวตน · สำเร็จล่าสุด ${statusTime(lastOk)} · กด HAR เพื่ออัปโหลดไฟล์ใหม่</span>`;
+    notifyHarExpiredOnce(error);
+    return;
+  }
+  if (error) {
+    el.className = 'har-health warn';
+    el.innerHTML = `<strong>${branchName} · MS ตรวจไม่สำเร็จชั่วคราว</strong><span>ยังไม่ถือว่า HAR หมดอายุ · สำเร็จล่าสุด ${statusTime(lastOk)} · ระบบจะลองใหม่ตามรอบเดิม</span>`;
+    return;
+  }
+  el.className = 'har-health ok';
+  el.innerHTML = `<strong>${branchName} · HAR ใช้งานได้</strong><span>MS สำเร็จล่าสุด ${statusTime(lastOk)} · HAR อัปเดต ${statusTime(credentialAt)}</span>`;
+}
+
+function markHarError(message) {
+  if (!isHarCredentialError(message)) return false;
+  state.connection = { ...(state.connection || {}), last_error: String(message || '') };
+  renderHarHealth();
+  setConnection('bad', 'HAR ต้องอัปเดต');
+  return true;
+}
+
 function scheduleLive(ms) {
   clearTimeout(state.timer);
   state.timer = setTimeout(() => loadPage(false), document.hidden ? 60000 : Math.max(500, ms));
@@ -335,7 +398,9 @@ function updateLiveDisplay(sourceAt, note = 'live') {
   window.__MS_LIVE_ROWS=state.rows;window.dispatchEvent(new CustomEvent('ms-live-state',{detail:{total:state.total,count:state.rows.length,rows:state.rows,sourceAt,branchId:branchId()}}));
   $('last-refresh').textContent = `ตรวจ MS ล่าสุด ${new Date(sourceAt || Date.now()).toLocaleString('th-TH')} · ${note}`;
   $('source-sync').textContent = `${fmt.format(state.total)} รายการ · ${currentBranch()?.code || ''}`;
-  setConnection('ok', 'ออนไลน์');
+  state.connection = { ...(state.connection || {}), last_error: null, last_ok_at: sourceAt || new Date().toISOString() };
+  renderHarHealth();
+  setConnection('ok', 'MS เชื่อมต่อ');
 }
 
 async function applySharedChange(meta) {
@@ -377,7 +442,7 @@ function applyEdgeLive(out) {
     note = 'full';
   }
   updateLiveDisplay(d.sourceAt, out?.meta?.stale ? 'ใช้ cache ล่าสุด' : note);
-  if (out?.meta?.stale) setConnection('bad', 'ใช้ cache ล่าสุด');
+  if (out?.meta?.stale) { const upstream = String(out.meta.error || ''); if (!markHarError(upstream)) setConnection('neutral', 'ใช้ข้อมูลล่าสุด'); }
   return Number(out?.meta?.ttlMs || 0);
 }
 
@@ -406,13 +471,13 @@ function ensureAdminNav() {
   if (!nav) return;
   if (!$('nav-users-btn')) {
     const users = document.createElement('button');
-    users.id = 'nav-users-btn'; users.type = 'button'; users.className = 'app-nav-btn admin-nav-btn hidden'; users.textContent = 'ผู้ใช้';
+    users.id = 'nav-users-btn'; users.type = 'button'; users.className = 'app-nav-btn admin-nav-btn hidden'; users.textContent = 'จัดการผู้ใช้';
     users.addEventListener('click', () => { $('users-dialog').showModal(); void loadUsers(); });
     nav.appendChild(users);
   }
   if (!$('nav-branches-btn')) {
     const branches = document.createElement('button');
-    branches.id = 'nav-branches-btn'; branches.type = 'button'; branches.className = 'app-nav-btn admin-nav-btn hidden'; branches.textContent = 'สาขา';
+    branches.id = 'nav-branches-btn'; branches.type = 'button'; branches.className = 'app-nav-btn admin-nav-btn hidden'; branches.textContent = 'จัดการสาขา';
     branches.addEventListener('click', () => { $('branches-dialog').showModal(); void loadBranches(); });
     nav.appendChild(branches);
   }
@@ -421,6 +486,12 @@ function ensureAdminNav() {
 function updateHeaderPermissions() {
   const active = state.accessStatus === 'active';
   const admin = active && state.profileRole === 'admin';
+  const account = $('account-badge');
+  if (account) {
+    account.classList.toggle('hidden', !state.session);
+    account.textContent = state.session ? `${state.profileUsername || state.profileDisplayName || 'บัญชี'} · ${admin ? 'ผู้ดูแลระบบ' : 'ผู้ใช้งาน'}` : '';
+    account.title = admin ? 'บัญชีนี้จัดการผู้ใช้และสาขาได้' : 'เมนูจัดการผู้ใช้และสาขาแสดงเฉพาะบัญชีผู้ดูแลระบบ';
+  }
   ensureAdminNav();
   $('manage-users-btn').classList.toggle('hidden', !admin);
   $('manage-branches-btn').classList.toggle('hidden', !admin);
@@ -438,6 +509,8 @@ async function refreshStatus(preferred = 0) {
   const d = out.data || {};
   const p = d.profile || {};
   state.profileRole = p.role || 'viewer';
+  state.profileUsername = String(p.username || '');
+  state.profileDisplayName = String(p.display_name || '');
   state.accessStatus = p.access_status || 'pending';
   state.canUploadHar = !!p.can_upload_har;
   state.profileBranchId = Number(p.branch_id || 0);
@@ -450,9 +523,12 @@ async function refreshStatus(preferred = 0) {
   window.dispatchEvent(new CustomEvent('ms-branch-ready',{detail:{...currentBranch(),id:branchId()}}));
   updateHeaderPermissions();
   const conn = d.connection;
-  if (conn?.last_error) setConnection('bad', 'MS มีปัญหา');
-  else if (conn?.credential_updated_at) setConnection('ok', 'ออนไลน์');
-  else setConnection('neutral', 'ยังไม่มี HAR');
+  state.connection = conn || null;
+  renderHarHealth(conn);
+  if (!conn?.credential_updated_at) setConnection('neutral', 'ยังไม่มี HAR');
+  else if (conn?.last_error && isHarCredentialError(conn.last_error)) setConnection('bad', 'HAR ต้องอัปเดต');
+  else if (conn?.last_error) setConnection('neutral', 'MS ตรวจไม่สำเร็จ');
+  else setConnection('ok', 'MS เชื่อมต่อ');
   $('source-sync').textContent = currentBranch()?.name || d.branch?.name || 'ยังไม่ได้เลือกสาขา';
   return d;
 }
@@ -494,6 +570,8 @@ async function setSession(session) {
     $('empty-state').classList.remove('hidden');
     $('table-wrap').classList.add('hidden');
     $('mobile-cards').classList.add('hidden');
+    state.profileUsername = ''; state.profileDisplayName = ''; state.connection = null;
+    renderHarHealth();
     setConnection('neutral', 'ยังไม่ได้เข้าสู่ระบบ');
     $('source-sync').textContent = 'ยังไม่ได้เชื่อมต่อ';
     return;
@@ -516,7 +594,7 @@ async function setSession(session) {
     }
     await Promise.allSettled([loadSummary(false), loadPage(false)]);
   } catch (e) {
-    setConnection('bad', 'เชื่อมต่อไม่ได้');
+    if (!markHarError(e.message)) setConnection('neutral', 'อุปกรณ์นี้เชื่อมต่อไม่ได้');
     $('source-sync').textContent = e.message;
   }
 }
@@ -539,7 +617,7 @@ async function loadSummary(force = false) {
     }
     const out = await api(branchQuery('summary'));
     renderSummary(out.data);
-    if (out.meta?.stale) setConnection('bad', 'ใช้ cache ล่าสุด');
+    if (out.meta?.stale) { const upstream = String(out.meta.error || ''); if (!markHarError(upstream)) setConnection('neutral', 'ใช้ข้อมูลล่าสุด'); }
     scheduleSummary(Number(out.meta?.ttlMs || 60000));
   } catch (e) {
     scheduleSummary(15000);
@@ -576,7 +654,7 @@ async function loadPage(force = false) {
     } else {
       $('last-refresh').textContent = `รีเฟรชไม่สำเร็จ · ใช้ข้อมูลล่าสุด · ${e.message}`;
     }
-    setConnection('bad', 'รีเฟรชไม่สำเร็จ');
+    if (!markHarError(e.message)) setConnection('neutral', 'อุปกรณ์นี้อัปเดตไม่ได้');
     scheduleLive(document.hidden ? 60000 : 15000);
   } finally {
     state.loading = false;
@@ -834,7 +912,7 @@ $('branch-select').addEventListener('change', async () => {
     await refreshStatus(id);
     await Promise.allSettled([loadSummary(false), loadPage(false)]);
   } catch (e) {
-    setConnection('bad', 'สลับสาขาไม่สำเร็จ');
+    if (!markHarError(e.message)) setConnection('neutral', 'สลับต้นทางไม่สำเร็จ');
   }
 });
 

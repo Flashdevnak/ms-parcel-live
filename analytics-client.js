@@ -1,4 +1,4 @@
-import {supabase as client} from './auth-client.js?v=20260906-handoff-v24';
+import {supabase as client} from './auth-client.js?v=20260906-device-har-v25';
 const URL='https://afhnfnfbqdqqzrghovfc.supabase.co';
 const KEY='sb_publishable_4GStzbYK3_BhthidusT_hw_DqtzC7qE';
 let generation=0,loading=false,nextAt=0,timer;

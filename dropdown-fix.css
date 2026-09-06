@@ -9,7 +9,7 @@
 .persistent-select-close{min-height:36px;padding:6px 12px;border:1px solid #b7c6d4;border-radius:7px;background:#fff}
 .persistent-select-options{overflow:auto;overscroll-behavior:contain;padding:4px;min-height:0}
 .persistent-select-option{display:block;width:100%;min-height:38px;padding:8px 10px;border:0;border-radius:6px;background:#fff;color:#152334;text-align:left;white-space:normal!important;overflow:visible!important;text-overflow:clip!important;overflow-wrap:anywhere;word-break:break-word;line-height:1.4}
-.persistent-select-option:hover,.persistent-select-option[aria-selected="true"]{background:#eaf2ff}
+.persistent-select-option:hover{background:#eef5ff;color:#10263b}.persistent-select-option[aria-selected="true"]{background:#d9eaff;color:#10263b!important;font-weight:750;box-shadow:inset 0 0 0 1px #6f98c5}
 .global-destination-grid label,.work-search label,.work-actions{min-width:0}
 .global-destination-grid .persistent-select,.work-search .persistent-select,.work-actions .persistent-select,.branch-select-wrap .persistent-select{width:100%}
 @media(max-width:640px){.persistent-select-panel{max-width:calc(100vw - 24px)!important}.persistent-select-trigger{font-size:14px}}
