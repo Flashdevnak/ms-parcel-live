@@ -1,9 +1,9 @@
-// Compatibility bridge for the legacy shell. Branch permissions now come from
-// user_branch_access and are returned on each accessible branch by /status.
-// This module only fixes presentation state; Edge authorization remains the
-// source of truth for every HAR write.
+import {supabase} from './auth-client.js?v=20260906-control-room-v31';
+
+const FUNCTION_BASE='https://afhnfnfbqdqqzrghovfc.supabase.co/functions/v1/ms-parcel-api';
+const PUBLISHABLE_KEY='sb_publishable_4GStzbYK3_BhthidusT_hw_DqtzC7qE';
 const $=(id)=>document.getElementById(id);
-let branch=null,active=false,admin=false;
+let branch=null,active=false,admin=false,seq=0;
 
 function sync(){
   const button=$('upload-har-btn');
@@ -15,30 +15,37 @@ function sync(){
 }
 
 async function readStatus(branchId=0){
+  const mine=++seq;
+  if(!branchId){branch=null;active=false;admin=false;sync();return;}
   try{
-    const auth=window.supabase||null;
-    // app.js owns authentication; status events below normally provide all
-    // state we need. Do not create a polling loop here.
-    if(!auth||!branchId)return;
+    const {data}=await supabase.auth.getSession();
+    const token=data?.session?.access_token;
+    if(!token)return;
+    const res=await fetch(`${FUNCTION_BASE}/status?branch_id=${branchId}`,{headers:{Authorization:`Bearer ${token}`,apikey:PUBLISHABLE_KEY},cache:'no-store'});
+    const out=await res.json().catch(()=>null);
+    if(mine!==seq||!res.ok||!out?.ok)return;
+    const profile=out.data?.profile||{};
+    const selected=(out.data?.branches||[]).find(b=>Number(b.id)===Number(branchId))||out.data?.branch||null;
+    branch=selected;
+    active=profile.access_status==='active';
+    admin=profile.role==='admin';
+    sync();
   }catch{}
 }
 
 window.addEventListener('ms-branch-ready',(event)=>{
-  branch=event.detail||null;
-  sync();
+  const b=event.detail||null;
+  branch=b;
+  void readStatus(Number(b?.id||0));
 });
 window.addEventListener('ms-session-reset',()=>{
-  branch=null;active=false;admin=false;sync();
-});
-window.addEventListener('ms-account-state',(event)=>{
-  const d=event.detail||{};
-  active=d.accessStatus==='active';
-  admin=d.role==='admin';
-  sync();
+  seq++;branch=null;active=false;admin=false;sync();
 });
 
-// app.js may update button visibility after the branch event. Keep this tiny
-// observer scoped to the one permission-controlled button, not the whole DOM.
 const observer=new MutationObserver(()=>sync());
-const start=()=>{const button=$('upload-har-btn');if(button)observer.observe(button,{attributes:true,attributeFilter:['class']});sync();};
+const start=()=>{
+  const button=$('upload-har-btn');
+  if(button)observer.observe(button,{attributes:true,attributeFilter:['class']});
+  sync();
+};
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});else start();
