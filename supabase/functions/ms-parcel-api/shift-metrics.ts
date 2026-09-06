@@ -12,7 +12,11 @@ async function currentContext(branchId:number,at=new Date()){
   for(const row of rows){const start=Number(row.start_minute),end=Number(row.end_minute);if(start<end){if(activeOn(row,now.date)&&now.minute>=start&&now.minute<end)candidates.push({row,shiftDate:now.date});}else{if(now.minute>=start&&activeOn(row,now.date))candidates.push({row,shiftDate:now.date});else if(now.minute<end&&activeOn(row,yesterday))candidates.push({row,shiftDate:yesterday});}}
   return candidates.sort((a,b)=>Number(a.row.sort_order)-Number(b.row.sort_order)||Number(a.row.start_minute)-Number(b.row.start_minute))[0]||null;
 }
-function metrics(analytics:any){return{total:Number(analytics?.total||0),fd:Number(analytics?.fdCount||0),lh:Number(analytics?.lhCount||0),singleParcels:Number(analytics?.singleParcels||0),baggedParcels:Number(analytics?.baggedParcels||0),uniqueBags:Number(analytics?.uniqueBags||0),over24:Number(analytics?.bandTotals?.['24to48']||0)+Number(analytics?.bandTotals?.over48||0),over48:Number(analytics?.bandTotals?.over48||0),overdue:Number(analytics?.overdueTotal||0),weightKg:Number(analytics?.totalWeightKg||0)};}
+function compactDestinations(list:any){return(Array.isArray(list)?list:[]).map((g:any)=>({name:String(g?.name||''),count:Number(g?.count||0),weightKg:Number(g?.weightKg||0)})).filter((g:any)=>g.name).slice(0,500);}
+function metrics(analytics:any){return{
+  total:Number(analytics?.total||0),fd:Number(analytics?.fdCount||0),lh:Number(analytics?.lhCount||0),singleParcels:Number(analytics?.singleParcels||0),baggedParcels:Number(analytics?.baggedParcels||0),uniqueBags:Number(analytics?.uniqueBags||0),over24:Number(analytics?.bandTotals?.['24to48']||0)+Number(analytics?.bandTotals?.over48||0),over48:Number(analytics?.bandTotals?.over48||0),overdue:Number(analytics?.overdueTotal||0),weightKg:Number(analytics?.totalWeightKg||0),
+  fdDestinations:compactDestinations(analytics?.fd),lhDestinations:compactDestinations(analytics?.lh),
+};}
 export async function recordShiftSnapshot(branchId:number,analytics:any,sourceAt:string){
   if(!analytics?.complete)return null;
   const ctx=await currentContext(branchId,new Date(sourceAt));if(!ctx?.row?.logical_id)return null;
@@ -22,9 +26,10 @@ export async function recordShiftSnapshot(branchId:number,analytics:any,sourceAt
   const inserted=await db('shift_operational_snapshots',{method:'POST',headers:{Prefer:'return=representation'},body:JSON.stringify(record)});return inserted?.[0]||record;
 }
 export async function shiftSummary(branchId:number){
-  const rows=await db(`shift_operational_snapshots?branch_id=eq.${branchId}&select=branch_id,shift_logical_id,shift_date,shift_name,first_seen_at,latest_seen_at,start_metrics,latest_metrics&order=shift_date.desc,latest_seen_at.desc&limit=8`)||[];
+  const rows=await db(`shift_operational_snapshots?branch_id=eq.${branchId}&select=branch_id,shift_logical_id,shift_date,shift_name,first_seen_at,latest_seen_at,start_metrics,latest_metrics&order=shift_date.desc,latest_seen_at.desc&limit=24`)||[];
   const current=rows[0]||null,previous=rows[1]||null;
-  if(!current)return{current:null,previous:null,delta:null};
-  const start=current.start_metrics||{},latest=current.latest_metrics||{},keys=['total','fd','lh','singleParcels','baggedParcels','uniqueBags','over24','over48','overdue','weightKg'],delta:any={};for(const key of keys)delta[key]=Math.round((Number(latest[key]||0)-Number(start[key]||0))*1000)/1000;
-  return{current,previous,delta};
+  if(!current)return{current:null,previous:null,history:[],delta:null};
+  const start=current.start_metrics||{},latest=current.latest_metrics||{},keys=['total','fd','lh','singleParcels','baggedParcels','uniqueBags','over24','over48','overdue','weightKg'],delta:any={};
+  for(const key of keys)delta[key]=Math.round((Number(latest[key]||0)-Number(start[key]||0))*1000)/1000;
+  return{current,previous,history:rows,delta};
 }
