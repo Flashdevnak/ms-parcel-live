@@ -38,6 +38,9 @@ jobs:
           node --check admin-control.js
           node --check bag-control.js
           node --check ops-intelligence.js
+          node --check multi-hub-ui.js
+          node --check quota-health.js
+          node --check shift-handover.js
           node tests-data.mjs
           node tests-lease.mjs
       - name: Setup Deno
