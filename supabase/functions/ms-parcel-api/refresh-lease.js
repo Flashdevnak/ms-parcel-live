@@ -1,10 +1,11 @@
 // Backend-only lease in the existing branch-scoped table. Frontend leases
 // remain unchanged; their short lifetime is not sufficient for a full scan.
-// 180s exceeds the Free Edge worker's 150s maximum lifetime, including a crash.
+// Five minutes exceeds the Free Edge worker lifetime and prevents a crashed
+// collector from immediately starting another expensive full scan.
 export async function claimAnalyticsLease(db, branchId, userId, now = Date.now()) {
   if (!Number.isSafeInteger(branchId) || branchId <= 0 || !userId) throw new Error('Invalid lease scope');
   const key = `b:${branchId}:engine:full-analytics`;
-  const at = new Date(now).toISOString(), until = new Date(now + 180000).toISOString();
+  const at = new Date(now).toISOString(), until = new Date(now + 300000).toISOString();
   const record = {cache_key:key, branch_id:branchId, owner_user_id:userId, lease_until:until, updated_at:at};
   const scope = `cache_key=eq.${encodeURIComponent(key)}&branch_id=eq.${branchId}`;
   const headers = {Prefer:'return=representation'};
