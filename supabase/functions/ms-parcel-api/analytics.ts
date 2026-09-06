@@ -6,6 +6,7 @@ const DEFAULT_PAGE_SIZE = 10000;
 const SNAPSHOT_PAGE_SIZE = 5000;
 const SNAPSHOT_TTL_MS = 30 * 60_000;
 const SNAPSHOT_WRITE_BATCH = 3;
+const FULL_SCAN_DEADLINE_MS = 90_000;
 const BANDS = ['under3','3to6','6to9','9to12','12to16','16to22','22to24','24to48','over48','unknown'];
 
 function cleanName(value:unknown){const raw=String(value??'').trim();if(!raw)return'';return raw.replace(/^\s*(?:(?:\([^)]*\)|（[^）]*）)\s*)+/,'').trim()||raw;}
@@ -35,17 +36,8 @@ async function persistSnapshot(branchId:number,snapshotId:string,pages:any[],sou
       const records=pages.slice(start,start+SNAPSHOT_WRITE_BATCH).map((rows,offset)=>{
         const pageNo=start+offset+1;
         return{
-          cache_key:snapshotKey(branchId,snapshotId,pageNo),
-          branch_id:branchId,
-          payload:rows,
-          item_count:rows.length,
-          source_total:sourceTotal,
-          source_updated_at:sourceAt,
-          expires_at:expiresAt,
-          content_hash:null,
-          previous_hash:null,
-          delta_payload:null,
-          unchanged_streak:0,
+          cache_key:snapshotKey(branchId,snapshotId,pageNo),branch_id:branchId,payload:rows,item_count:rows.length,source_total:sourceTotal,
+          source_updated_at:sourceAt,expires_at:expiresAt,content_hash:null,previous_hash:null,delta_payload:null,unchanged_streak:0,
         };
       });
       await db('live_cache_pages?on_conflict=cache_key',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(records)});
@@ -62,7 +54,21 @@ async function persistSnapshot(branchId:number,snapshotId:string,pages:any[],sou
 
 export async function buildFullAnalytics(conn:any,branch:any,requestedPageSize=DEFAULT_PAGE_SIZE){
   const branchId=Number(branch?.id||0),pageSize=Math.max(500,Math.min(10000,Number(requestedPageSize)||DEFAULT_PAGE_SIZE));
-  const collected:any=await collectSnapshot((p:number,size:number,totalHint:number)=>fetchLivePage(conn,p,size,totalHint),pageSize);
+  const controller=new AbortController();
+  let deadline:any;
+  const timeout=new Promise((_,reject)=>{
+    deadline=setTimeout(()=>{controller.abort(new Error('full_scan_deadline'));reject(new Error('การรวบรวมข้อมูลทั้ง HUB เกินขีดจำกัดเวลาที่ปลอดภัย'));},FULL_SCAN_DEADLINE_MS);
+  });
+  let collected:any;
+  try{
+    collected=await Promise.race([
+      collectSnapshot((p:number,size:number,totalHint:number)=>fetchLivePage(conn,p,size,totalHint,controller.signal),pageSize),
+      timeout,
+    ]);
+  }finally{
+    clearTimeout(deadline);
+    controller.abort();
+  }
   const {rowPages,...scan}=collected;
   const {total,pages}=scan;
   if(!rowPages?.length)return {...scan,branchId,snapshotStore:null,snapshotId:null,snapshotPages:0,snapshotExpiresAt:null,updatedAt:new Date().toISOString(),schemaVersion:10};
