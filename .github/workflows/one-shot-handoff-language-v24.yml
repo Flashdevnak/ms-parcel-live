@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/one-shot-handoff-language-v24.yml'
+      - '.github/scripts/handoff-language-v24.py'
 
 permissions:
   contents: write
@@ -17,70 +18,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Apply handoff terminology and ownership view
-        shell: bash
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          import re
+      - name: Apply v24 patch
+        run: python .github/scripts/handoff-language-v24.py
 
-          VERSION_OLD='20260906-smart-leader-v23'
-          VERSION_NEW='20260906-handoff-v24'
-
-          for path in ['index.html','app.js','ops.js','analytics-client.js','snapshot-client.js','dropdowns.js']:
-              p=Path(path)
-              s=p.read_text(encoding='utf-8')
-              s=s.replace(VERSION_OLD,VERSION_NEW)
-              if path=='index.html':
-                  s=s.replace('<span>สาขาต้นทาง</span><select id="branch-select"></select>','<span>ต้นทางที่เลือก</span><select id="branch-select"></select>')
-              p.write_text(s,encoding='utf-8')
-
-          p=Path('ops.js')
-          s=p.read_text(encoding='utf-8')
-
-          new_groups=r'''function leaderGroups(cells,r){const total=Math.max(1,metrics(cells).count),map=new Map();for(const c of cells){if(c.r!==r||!c.d)continue;let g=map.get(c.d);if(!g){g={name:c.d,route:r,count:0,weight:0,overdue:0,over48:0,noBag24:0};map.set(c.d,g);}const count=Number(c.c||0);g.count+=count;g.weight+=Number(c.w||0);g.overdue+=Number(c.o||0);if(c.b==='over48')g.over48+=count;if(['24to48','over48'].includes(c.b))g.noBag24+=Math.max(0,count-Number(c.g||0));}const out=[...map.values()].map(g=>{const score=Math.min(100,Math.round((g.over48*55+g.overdue*30+g.noBag24*15)/Math.max(1,g.count))),level=score>=70?'critical':score>=40?'high':score>=15?'watch':'normal';return {...g,score,level,share:g.count/total*100};});return out.sort((a,b)=>leaderSort==='count'?b.count-a.count:leaderSort==='weight'?b.weight-a.weight:b.score-a.score||b.over48-a.over48||b.overdue-a.overdue||b.count-a.count);}
-function leaderAdvice'''
-          s,n=re.subn(r"function leaderGroups\(cells,r\)\{.*?\}\nfunction leaderAdvice",new_groups,s,count=1,flags=re.S)
-          if n!=1: raise SystemExit(f'leaderGroups replacement failed: {n}')
-
-          s,n=re.subn(r"function leaderAdvice\(g\)\{.*?\}\nfunction riskLabel", "function leaderAdvice(g){if(g.noBag24>0)return`ตรวจการสร้างแบ็ก ${num(g.noBag24)} ชิ้นที่ค้าง ≥24 ชม.`;if(g.over48>0)return`ติดตามพัสดุ >48 ชม. ${num(g.over48)} ชิ้น`;if(g.overdue>0)return`ตรวจพัสดุเกินเวลาแผน ${num(g.overdue)} ชิ้น`;return'ยังไม่มีรายการที่ต้องเร่งเป็นพิเศษ';}\nfunction riskLabel", s, count=1, flags=re.S)
-          if n!=1: raise SystemExit(f'leaderAdvice replacement failed: {n}')
-
-          s,n=re.subn(r"function riskLabel\(g\)\{.*?\}\nfunction leaderHierarchy", "function riskLabel(g){return g.level==='critical'?'เร่งด่วน':g.level==='high'?'เร่งติดตาม':g.level==='watch'?'ติดตาม':'งานทั่วไป';}\nfunction leaderHierarchy", s, count=1, flags=re.S)
-          if n!=1: raise SystemExit(f'riskLabel replacement failed: {n}')
-
-          new_view=r'''function leaderHierarchy(cells){const lh=leaderGroups(cells,'lh'),fd=leaderGroups(cells,'fd'),all=[...lh,...fd].sort((a,b)=>b.score-a.score||b.count-a.count),hot=all.slice(0,3);const source=`${esc(branch.code||'ต้นทาง')}${branch.name?` · ${esc(branch.name)}`:''}`;const lane=(r,gs,title,subtitle)=>`<section class="leader-lane"><div class="leader-lane-head"><div><span class="route-tag ${r}">${r.toUpperCase()}</span><strong>${title}</strong><small>${subtitle}</small></div><b>${num(gs.reduce((s,g)=>s+g.count,0))} ชิ้น · ${num(gs.length)} ปลายทาง</b></div><div class="leader-groups">${gs.slice(0,24).map((g,i)=>`<details class="leader-group ${g.level}" ${i<2?'open':''}><summary><span><b>${esc(g.name)}</b><small>${num(g.count)} ชิ้น · ${g.share.toFixed(1)}% ของชุดที่กรอง</small></span><span class="risk-score ${g.level}">ความเร่งด่วน ${g.score}/100 · ${riskLabel(g)}</span></summary><div class="leader-stats"><span>น้ำหนัก<b>${kg(g.weight)} กก.</b></span><span>>48 ชม.<b>${num(g.over48)}</b></span><span>เกินเวลาแผน<b>${num(g.overdue)}</b></span><span>ไม่มีแบ็ก ≥24ชม.<b>${num(g.noBag24)}</b></span></div><p class="leader-advice">${leaderAdvice(g)}</p><div class="leader-open">${button('เปิดรายการปลายทางนี้',`data-destination="${esc(g.name)}" data-route="${r}"`)}</div></details>`).join('')||blank('ไม่พบข้อมูลปลายทาง')}</div>${gs.length>24?`<p class="work-caption">แสดง 24 จาก ${num(gs.length)} ปลายทาง · ใช้ตัวกรองปลายทางเพื่อเจาะรายการอื่น</p>`:''}</section>`;return `<section class="work-panel leader-board"><div class="work-section-head leader-title"><div><h3>งานส่งต่อแยกตามปลายทาง</h3><span>ต้นทาง ${source} · งานด้านล่างคือพัสดุที่ต้นทางนี้ต้องส่งต่อ</span></div><div class="work-actions"><select id="leader-sort" aria-label="เรียงงานส่งต่อ"><option value="risk">รายการเร่งด่วนก่อน</option><option value="count">จำนวนมากก่อน</option><option value="weight">น้ำหนักมากก่อน</option></select>${button('คัดลอกสรุปงานส่งต่อ','data-copy-table="leaders"')}</div></div><div class="handoff-note"><strong>แบ่งตามความรับผิดชอบปลายทาง</strong><span>LH แยกตาม HUB ปลายทาง · FD แยกตามสาขาปลายทาง · ไม่ผูกผู้จัดการเข้ากับกลุ่มนี้</span></div><div class="smart-hotspots">${hot.map((g,i)=>`<button class="hotspot-card ${g.level}" data-destination="${esc(g.name)}" data-route="${g.route}"><span>ลำดับ ${i+1} · ${g.route.toUpperCase()}</span><strong>${esc(g.name)}</strong><b>ความเร่งด่วน ${g.score}/100</b><small>${leaderAdvice(g)}</small></button>`).join('')||blank('ยังไม่มีปลายทางที่ต้องเร่ง')}</div><div class="leader-lanes">${lane('lh',lh,'LH · HUB ปลายทาง','งานที่ต้องส่งต่อไปแต่ละ HUB ปลายทาง')}${lane('fd',fd,'FD · สาขาปลายทาง','งานที่ต้องส่งต่อไปแต่ละสาขาปลายทาง')}</div></section>`;}
-function setView'''
-          s,n=re.subn(r"function leaderHierarchy\(cells\)\{.*?\}\nfunction setView",new_view,s,count=1,flags=re.S)
-          if n!=1: raise SystemExit(f'leaderHierarchy replacement failed: {n}')
-
-          new_copy="""}else if(kind==='leaders'){const gs=[...leaderGroups(cells,'lh'),...leaderGroups(cells,'fd')];title='สรุปงานส่งต่อแยกตามปลายทาง';lines=[['ประเภท','ปลายทาง','จำนวน','สัดส่วน','ความเร่งด่วน','ระดับงาน','น้ำหนัก(กก.)','เกิน48ชม.','เกินเวลาแผน','ไม่มีแบ็ก>=24ชม.'].join('\\t'),...gs.map(g=>[g.route.toUpperCase(),g.name,g.count,g.share.toFixed(1)+'%',g.score+'/100',riskLabel(g),kg(g.weight),g.over48,g.overdue,g.noBag24].map(tsv).join('\\t'))];"""
-          s,n=re.subn(r"\}else if\(kind==='leaders'\)\{.*?\}else if\(kind==='list'\)\{",new_copy+"}else if(kind==='list'){",s,count=1,flags=re.S)
-          if n!=1: raise SystemExit(f'leader copy replacement failed: {n}')
-
-          # Visible-language audit: these terms should not appear in user-facing ops strings anymore.
-          for forbidden in ['Leader / Hierarchy','Leader Report','Risk Score','HOT ','Hotspot','Next Action','วิกฤต','เสี่ยงสูง','เฝ้าระวัง']:
-              if forbidden in s:
-                  raise SystemExit(f'forbidden UI wording remains in ops.js: {forbidden}')
-
-          p.write_text(s,encoding='utf-8')
-
-          # Update UI tests for the corrected ownership meaning.
-          t=Path('tests-ui.mjs').read_text(encoding='utf-8')
-          t=t.replace("assert.match(w.document.querySelector('#work-dashboard').textContent,/Leader \\/ Hierarchy View/);assert.match(w.document.querySelector('#work-dashboard').textContent,/LH HUB/);assert.match(w.document.querySelector('#work-dashboard').textContent,/FD สาขา/);", "assert.match(w.document.querySelector('#work-dashboard').textContent,/งานส่งต่อแยกตามปลายทาง/);assert.match(w.document.querySelector('#work-dashboard').textContent,/LH · HUB ปลายทาง/);assert.match(w.document.querySelector('#work-dashboard').textContent,/FD · สาขาปลายทาง/);const handoff=w.document.querySelector('.leader-board').textContent;assert.doesNotMatch(handoff,/ผู้จัดการ เอ|ผู้จัดการ บี|Leader|Hierarchy|Risk Score|HOT |วิกฤต|เสี่ยงสูง|เฝ้าระวัง/);")
-          t=t.replace("await vm.runInContext(\"copyTable('leaders')\",dom.getInternalVMContext());assert.match(clipboard,/Leader \\/ Hierarchy Report/);", "await vm.runInContext(\"copyTable('leaders')\",dom.getInternalVMContext());assert.match(clipboard,/สรุปงานส่งต่อแยกตามปลายทาง/);assert.doesNotMatch(clipboard,/ผู้จัดการ เอ|ผู้จัดการ บี|Leader|Hierarchy|Risk Score/);")
-          t=t.replace("console.log('PASS: six views, synchronized time filters, Smart Leader hierarchy, risk hotspots, client-only density mode, live fallback, exact manager multiselect, copy tables, mixed bag and details');", "console.log('PASS: six views, synchronized time filters, outbound handoff grouping without manager ownership, operational wording, responsive layout, client-only density mode, live fallback, exact manager multiselect, copy tables, mixed bag and details');")
-          Path('tests-ui.mjs').write_text(t,encoding='utf-8')
-
-          # Keep docs aligned with what users actually see.
-          rp=Path('README.md')
-          r=rp.read_text(encoding='utf-8')
-          r += '\n\n## Handoff v24 terminology correction\n- มุมมองงานส่งต่อยึดต้นทางที่เลือกด้านบนเป็นเจ้าของงาน ไม่ผูกผู้จัดการเข้ากับกลุ่ม LH/FD\n- LH แยกตาม HUB ปลายทาง และ FD แยกตามสาขาปลายทาง\n- คำบนหน้าจอใช้ภาษาหน้างาน: งานทั่วไป / ติดตาม / เร่งติดตาม / เร่งด่วน และ ความเร่งด่วน แทนคำเชิง AI/วิเคราะห์\n'
-          rp.write_text(r,encoding='utf-8')
-          PY
-
-      - name: Validate frontend and interaction tests
-        shell: bash
+      - name: Validate frontend and interactions
         run: |
           node --check app.js
           node --check ops.js
@@ -95,11 +36,11 @@ function setView'''
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
+
       - name: Validate Edge unchanged
         run: deno check supabase/functions/ms-parcel-api/index.ts
 
       - name: Commit validated v24
-        shell: bash
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
