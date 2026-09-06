@@ -104,7 +104,15 @@ Deno.serve(async(req)=>{
         await db('summary_cache?on_conflict=cache_key',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({cache_key:cacheKey,branch_id:branchId,payload,content_hash:hash,source_updated_at:sourceAt,expires_at:expiresAt})});
         await updateConnectionHealth(conn,true);
         return json({ok:true,data:payload,meta:{cache:'miss',ttlMs,branchId}});
-      }catch(e){const m=errMessage(e);await updateConnectionHealth(conn,false,m);if(c?.payload)return json({ok:true,data:c.payload,meta:{cache:'stale',stale:true,error:m,ttlMs:60_000,branchId}});return json({ok:false,message:m},502);}
+      }catch(e){
+        const m=errMessage(e),backoffMs=5*60_000,expiresAt=new Date(Date.now()+backoffMs).toISOString();
+        await updateConnectionHealth(conn,false,m);
+        if(c?.payload){
+          try{await db(`summary_cache?cache_key=eq.${encodeURIComponent(cacheKey)}`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify({expires_at:expiresAt})});}catch{}
+          return json({ok:true,data:c.payload,meta:{cache:'stale',stale:true,error:m,expiresAt,ttlMs:backoffMs,branchId}});
+        }
+        return json({ok:false,message:m},502);
+      }
       }finally{try{await release();}catch{/* Crash-safe lease expires without deleting configuration. */}}
     }
 
