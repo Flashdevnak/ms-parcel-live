@@ -8,7 +8,7 @@ const SNAPSHOT_TTL_MS = 30 * 60_000;
 const SNAPSHOT_WRITE_BATCH = 3;
 const FULL_SCAN_DEADLINE_MS = 90_000;
 const BANDS = ['under3','3to6','6to9','9to12','12to16','16to22','22to24','24to48','over48','unknown'];
-const SCHEMA_VERSION = 11;
+const SCHEMA_VERSION = 10;
 
 function cleanName(value:unknown){const raw=String(value??'').trim();if(!raw)return'';return raw.replace(/^\s*(?:(?:\([^)]*\)|（[^）]*）)\s*)+/,'').trim()||raw;}
 function normalize(value:unknown){return cleanName(value).toUpperCase().replace(/^\d+\s*/,'').replace(/\s+/g,' ').trim();}
